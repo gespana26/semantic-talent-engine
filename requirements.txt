@@ -1,0 +1,8 @@
+uuid
+chromadb
+typing 
+config
+base
+pymupdf
+pytesseract
+ollama
