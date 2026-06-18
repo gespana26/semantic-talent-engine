@@ -1,8 +1,12 @@
-uuid
-chromadb
-typing 
-config
-base
-pymupdf
-pytesseract
-ollama
+# --- MOTOR VECTORIAL Y PERSISTENCIA DE DATOS ---
+chromadb==0.6.3
+
+# --- CAPA COGNITIVA E INFERENCIA DE IA ---
+openai==1.61.0
+ollama==0.4.7
+
+# --- GESTION DE VARIABLES DE ENTORNO ---
+python-dotenv==1.0.1
+
+# --- PARSING MULTIMODAL Y PROCESAMIENTO GRAFICO DE ARCHIVOS ---
+PyMuPDF==1.25.3

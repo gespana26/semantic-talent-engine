@@ -1,9 +1,13 @@
+"""Módulo encargado de la recuperación semántica de información, filtrado estructural de metadatos y cálculo de índices de afinidad."""
+
 import json
 import chromadb
 from chromadb.utils import embedding_functions
 from config import settings
 
 class CVSearchEngine:
+    """Ejecuta consultas de similitud de alta velocidad en espacios vectoriales intersectando restricciones lógicas de metadatos."""
+    
     def __init__(self, collection_name: str = "talento-global-empresa"):
         self.client = chromadb.PersistentClient(path=settings.CHROMA_DB_PATH)
         self.embedding_function = embedding_functions.OllamaEmbeddingFunction(
@@ -16,7 +20,7 @@ class CVSearchEngine:
         )
 
     def search_candidates(self, query_text: str, limit: int = 5, where_filter: dict = None) -> list:
-        """Ejecuta búsquedas semánticas híbridas con filtrado exacto por metadatos."""
+        """Interroga la colección vectorial activa aplicando restricciones relacionales y calculando la métrica de afinidad final."""
         try:
             results = self.collection.query(
                 query_texts=[query_text],
@@ -31,7 +35,7 @@ class CVSearchEngine:
                     metadata = results['metadatas'][0][i]
                     distance = results['distances'][0][i]
                     
-                    # Transformación formal de distancia de coseno a porcentaje de afinidad
+                    # Normalización matemática: Conversión de distancia de coseno espacial a indicador de negocio (% Match de Afinidad)
                     affinity_percentage = max(0, (1 - distance) * 100)
                     
                     raw_json_str = metadata.get("raw_json")
@@ -47,4 +51,4 @@ class CVSearchEngine:
                     })
             return processed_results
         except Exception as e:
-            raise RuntimeError(f"Error en consulta semántica: {e}")
+            raise RuntimeError(f"La capa de abstracción de datos falló al resolver la consulta de similitud vectorial: {e}")

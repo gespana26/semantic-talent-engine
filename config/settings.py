@@ -1,30 +1,30 @@
+"""Modulo para la gestion de la configuracion del sistema, variables de entorno y utilidades de normalizacion."""
+
 import os
 import re
+from dotenv import load_dotenv
 
-# --- CONFIGURACIÓN DE INFRAESTRUCTURA LOCAL ---
+# Cargar las variables del archivo .env local
+load_dotenv()
+
+# --- RUTAS DE INFRAESTRUCTURA Y PERSISTENCIA DE DATOS ---
 CHROMA_DB_PATH = "./storage/chroma_vector_db"
 LOCAL_STORAGE_CV_PATH = "./storage/cv_files"
 OLLAMA_EMBEDDINGS_ENDPOINT = "http://localhost:11434"
 EMBEDDING_MODEL = "nomic-embed-text"
 
-# --- CONFIGURACIÓN DE INTELIGENCIA ARTIFICIAL (CONMUTABLE) ---
-# Cambiar a "gpt-4o-mini" u "ollama" según el entorno de pruebas
-AI_PROVIDER_TYPE = "openai" 
-MODEL_NAME = "gpt-4o-mini" # O el modelo local de Ollama (ej: 'gemma4:26b')
-OPENAI_API_KEY = "tu_api_key_aqui"
+# --- CONFIGURACION DINAMICA DESDE EL ENTORNO (.env) ---
+AI_PROVIDER_TYPE = os.getenv("AI_PROVIDER_TYPE", "openai")
+MODEL_NAME = os.getenv("MODEL_NAME", "gpt-4o-mini")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "placeholder_key_clean")
 
-# --- BANDERAS DE DEPURACIÓN PARA EL MVP ---
-# True = Imprime el JSON crudo de la IA y CONSERVA las imágenes PNG temporales en disco
-DEBUG_MODE = True 
+# --- OBSERVABILIDAD DEL SISTEMA ---
+# Convertimos el string del .env a un booleano real
+DEBUG_MODE = os.getenv("DEBUG_MODE", "True").lower() in ("true", "1", "t")
 
-# --- FUNCIONES UTILITARIAS DE INFRAESTRUCTURA ---
 def clean_collection_name(cargo_name: str) -> str:
-    """Normaliza nombres de cargos para cumplir estrictamente con las
-    reglas de nombres de colecciones en ChromaDB.
-    """
+    """Normaliza texto arbitrario segun el esquema estricto de nomenclatura de colecciones de ChromaDB."""
     cleaned = cargo_name.lower().strip()
-    # Reemplaza cualquier carácter no alfanumérico por un guión
     cleaned = re.sub(r'[^a-z0-9\-_.]', '-', cleaned)  
-    # Elimina guiones consecutivos duplicados
     cleaned = re.sub(r'-+', '-', cleaned)             
     return cleaned[:63].strip('-')
