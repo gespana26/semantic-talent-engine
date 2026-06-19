@@ -1,6 +1,7 @@
 """Capa de validacion de datos que define los contratos inmutables para los pipelines de extraccion de IA mediante Pydantic."""
 
 from pydantic import BaseModel, Field
+from typing import List, Optional
 
 class VacancyStructure(BaseModel):
     """Contrato de datos que representa una oferta de empleo corporativa completamente normalizada."""
@@ -13,14 +14,23 @@ class VacancyStructure(BaseModel):
     soft_skills: list[str] = Field(description="Competencias conductuales y habilidades interpersonales requeridas para el perfil ideal.")
     dias_vigencia: int = Field(default=30, description="Duracion del ciclo de vida en dias para la publicacion activa de la vacante.")
 
+class ExperienciaLaboral(BaseModel):
+    empresa: str
+    cargo: str
+    duracion_anios: float = Field(description="Duracion en la empresa en años (ej. 2.5)")
+
 class CandidateStructure(BaseModel):
-    """Contrato de datos que representa un perfil profesional extraido y normalizado desde un Curriculum Vitae."""
-    nombre_completo: str = Field(description="Nombre y apellidos legales extraidos del documento del candidato.")
-    correo_electronico: str = Field(description="Direccion de correo electronico principal de contacto detectada en el perfil.")
-    telefono_movil: str = Field(description="Numero de telefono movil parsed de los detalles de contacto del perfil.")
-    perfil_profesional: str = Field(description="Resumen analitico que sintetiza la trayectoria profesional, seniority y enfoque del candidato.")
-    hard_skills: list[str] = Field(description="Inventario de competencias tecnicas locales, plataformas y habilidades duras identificadas.")
-    soft_skills: list[str] = Field(description="Inventario de atributos conductuales locales, habilidades sociales y competencias blandas identificadas.")
+    nombre_completo: str
+    correo_electronico: str
+    telefono_movil: str
+    ubicacion: str = Field(default="No especificada")
+    nivel_academico_maximo: str = Field(description="Ej: Bachiller, Profesional, Especializacion, Maestria")
+    educacion_detalle: List[str] = Field(description="Lista de titulos o cursos formales")
+    anios_experiencia_total: int = Field(description="Suma total de años de experiencia profesional (numero entero)")
+    historial_laboral: List[ExperienciaLaboral]
+    perfil_profesional: str
+    hard_skills: List[str]
+    soft_skills: List[str]
 
 class ChromaQueryStructure(BaseModel):
     """Contrato de datos que representa una estructura de consulta compilada y optimizada para busquedas hibridas vector/metadatos."""

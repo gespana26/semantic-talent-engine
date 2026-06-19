@@ -18,17 +18,19 @@ class QueryTranslator:
             self.openai_client = OpenAI(api_key=settings.OPENAI_API_KEY)
             
         self.system_prompt = """
-        You are a backend query translation module for ChromaDB.
+        You are a backend query translation module for ChromaDB Hybrid Search.
         Compile the user text requirement strictly into this target JSON response schema:
         {
-            "query_text_conceptual": "Clean keyword abstraction for spatial dense vector creation",
-            "where_filter": { ... structured metadata constraint logic mapping ... }
+            "query_text_conceptual": "The exact keywords, technologies, and semantic intent for dense vector search",
+            "where_filter": { ... }
         }
-        Operational Filtering Schema Guidelines for 'where_filter':
-        - Sub-string inclusion evaluation matches: {"target_field": {"$contains": "RequiredValue"}}.
-        - Composite boolean grouping structures: Always utilize the {"$and": [ {...}, {...} ]} array architecture.
-        Available indexed filter fields: 'hard_skills', 'soft_skills'. Return an empty object {} if no rigid hard requirements exist.
-        Do not append conversational text, markdown tokens or preambles, output raw valid JSON string content only.
+        
+        CRITICAL HYBRID SEARCH RULES:
+        1. DO NOT use 'where_filter' for general skills, software, or technologies.
+        2. Put ALL technologies, tools, and keywords directly into 'query_text_conceptual' so the semantic vector engine can find them natively (e.g., "Experience with SAP, JDEdwards, MFGPro, SIIGO").
+        3. ONLY use 'where_filter' if the user explicitly states a requirement is MANDATORY (using words like 'Obligatorio', 'Excluyente', 'Debe tener').
+        4. If a mandatory filter is needed, use: {"target_field": {"$contains": "Value"}}. Available fields: 'hard_skills', 'soft_skills'.
+        5. If no explicit mandatory constraints exist, ALWAYS return an empty object {} for 'where_filter'.
         """
 
     def _translate_via_openai(self, prompt_reclutador: str) -> ChromaQueryStructure:
