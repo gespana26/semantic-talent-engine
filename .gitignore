@@ -1,0 +1,27 @@
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+
+# Local application storage and generated data
+storage/
+chroma_db/
+temp_cv_images/
+*.sqlite3
+
+# Local AI/agent generated metadata
+.atl/
+
+# Logs
+*.log
+log_*.txt
