@@ -16,21 +16,59 @@ class QueryTranslator:
         
         if self.provider_type == "openai":
             self.openai_client = OpenAI(api_key=settings.OPENAI_API_KEY)
-            
+        
+        ''' Para el PROMPT usamos la técnica Few-Shot Prompting (Inyección de Ejemplos)
+        para enseñar al modelo a generar la estructura JSON exacta que necesitamos, incluyendo la lógica de filtrado.
+        inicialmente, usamos (Zero-Shot), pero el modelo "qwen2.5vl" de 7 billones es incapaz de seguir una lista larga de reglas teóricas
+        '''
         self.system_prompt = """
-        You are a backend query translation module for ChromaDB Hybrid Search.
-        Compile the user text requirement strictly into this target JSON response schema:
+        You are an expert query translator for a ChromaDB Hybrid Search engine.
+        Convert the user's free-text request exactly into the following JSON format:
         {
-            "query_text_conceptual": "The exact keywords, technologies, and semantic intent for dense vector search",
+            "query_text_conceptual": "Cleaned keywords for semantic search",
             "where_filter": { ... }
         }
+
+        --- EXAMPLES OF CORRECT BEHAVIOR (LEARN THESE PATTERNS) ---
         
-        CRITICAL HYBRID SEARCH RULES:
-        1. DO NOT use 'where_filter' for general skills, software, or technologies.
-        2. Put ALL technologies, tools, and keywords directly into 'query_text_conceptual' so the semantic vector engine can find them natively (e.g., "Experience with SAP, JDEdwards, MFGPro, SIIGO").
-        3. ONLY use 'where_filter' if the user explicitly states a requirement is MANDATORY (using words like 'Obligatorio', 'Excluyente', 'Debe tener').
-        4. If a mandatory filter is needed, use: {"target_field": {"$contains": "Value"}}. Available fields: 'hard_skills', 'soft_skills'.
-        5. If no explicit mandatory constraints exist, ALWAYS return an empty object {} for 'where_filter'.
+        User input: "Ingeniero Industrial OBLIGATORIO. Con fuertes habilidades de multitasking"
+        Output: 
+        {
+            "query_text_conceptual": "Industrial Engineer, Ingeniero Industrial, multitasking skills, habilidades de multitarea, problem solving, resolucion de problemas",
+            "where_filter": {
+                "$or": [
+                    {"nivel_academico_maximo": {"$contains": "Industrial"}},
+                    {"perfil_profesional": {"$contains": "Engineer"}}
+                ]
+            }
+        }
+
+        User input: "Experiencia en Java y AWS, excluyente que sea Desarrollador"
+        Output:
+        {
+            "query_text_conceptual": "Java programming, programacion en Java, AWS cloud, nube AWS, software development architecture",
+            "where_filter": {
+                "$or": [
+                    {"perfil_profesional": {"$contains": "Desarrollador"}},
+                    {"perfil_profesional": {"$contains": "Developer"}}
+                ]
+            }
+        }
+
+        User input: "Que sepa mucho de SAP, finanzas y contabilidad"
+        Output:
+        {
+            "query_text_conceptual": "SAP ERP, finance, finanzas, accounting, contabilidad, financial analysis",
+            "where_filter": {}
+        }
+        -----------------------------------------------------------
+
+        CRITICAL RULES FOR GENERATION:
+        1. NEVER include instruction words (like 'OBLIGATORIO', 'EXCLUYENTE', 'MANDATORY') inside 'query_text_conceptual'. Those words destroy the mathematical vector semantics.
+        2. BILINGUAL CONCEPTUALIZATION: In 'query_text_conceptual', ALWAYS include the core concepts in BOTH Spanish and English separated by commas. This guarantees mathematical vector proximity regardless of the CV's original language.
+        3. ONLY output a populated 'where_filter' if the user explicitly typed 'OBLIGATORIO', 'EXCLUYENTE' or 'DEBE TENER'. Otherwise, leave it as {}.
+        4. When a mandatory profession/role is requested, ALWAYS mimic the "$or" structure shown in the examples, extracting ONLY the single root word.
+        5. Return ONLY a valid JSON object. No markdown formatting outside the JSON, no explanations.
         """
 
     def _translate_via_openai(self, prompt_reclutador: str) -> ChromaQueryStructure:

@@ -51,7 +51,26 @@ class RECRUITMENTConsoleApp:
         print("\n[OPERACION - RUNTIME] Decodificando bloque linguistico y estructurando indices...")
         try:
             resultado = self.orquestador_vacantes.process_and_register_vacancy(raw_text=prompt_vacante)
-            print(f"\n[TRANSACCION COMPLETA] Estado Operativo: {resultado['operacion'].upper()} | Catalogo Destino: {resultado['coleccion']}")
+            
+            # --- NUEVA SECCIÓN DE VISIBILIDAD DE DATOS ---
+            print("\n" + "="*60)
+            print("  PERFIL DE VACANTE ESTRUCTURADO POR IA (NORMALIZADO)")
+            print("="*60)
+            
+            # Asumimos que el orquestador devuelve los datos extraidos. 
+            # Si tiene la llave 'datos_extraidos' (como el de candidatos) usamos esa, sino mostramos el resultado completo.
+            datos_mostrar = resultado.get("datos_extraidos", resultado)
+            
+            # Imprimimos el diccionario de la vacante de forma elegante
+            print(json.dumps(datos_mostrar, indent=2, ensure_ascii=False))
+            print("="*60)
+            # ---------------------------------------------
+            
+            # Mensaje de confirmacion original blindado con .get() por seguridad
+            operacion = resultado.get('operacion', 'EXITO').upper()
+            coleccion = resultado.get('coleccion', 'Base Vectorial')
+            print(f"\n[TRANSACCION COMPLETA] Estado Operativo: {operacion} | Catalogo Destino: {coleccion}")
+            
         except Exception as e:
             print(f"\n[ERROR CRITICO] Fallo operacional en el pipeline transaccional de la vacante: {e}")
 
@@ -124,7 +143,7 @@ class RECRUITMENTConsoleApp:
 
         print("\n[OPERACION - RUNTIME] Traduciendo requerimientos verbales a arboles booleanos indexables...")
         try:
-            traductor = QueryTranslator()  # <-- CORREGIDO: Instanciacion limpia de la clase global
+            traductor = QueryTranslator()
             query_estructurada = traductor.translate_prompt_to_chroma(prompt_busqueda)
             
             if settings.DEBUG_MODE:
@@ -139,19 +158,33 @@ class RECRUITMENTConsoleApp:
                 query_text=query_estructurada.query_text_conceptual, limit=3, where_filter=filtro
             )
             
-            print("\n" + "="*60)
+            print("\n" + "="*70)
             print(f"  REGISTROS DE COINCIDENCIA DE ALTA DENSIDAD (BOLSA GLOBAL DE TALENTO)")
-            print("="*60)
+            print("="*70)
             
             if not candidatos:
                 print("Cero registros matematicos computados para los criterios evaluados.")
             else:
                 for idx, cand in enumerate(candidatos, 1):
-                    print(f"Indice Ranking #{idx} - [METRICA MATCH HUMANO: {cand['porcentaje_afinidad']}%]")
-                    print(f"  • Identidad: {cand['nombre']} | Canal de comunicacion: {cand['correo']}")
-                    print(f"  • Puntero Fisico de Archivo: {cand['pdf_origen']}")
-                    print(f"  • Entidad Perfil Unificado: {cand['perfil_completo_json'].get('perfil_profesional')}")
-                    print("-" * 60)
+                    # Extraemos el JSON completo que ahora viene enriquecido
+                    json_data = cand.get('perfil_completo_json', {})
+                    
+                    print(f"\nIndice Ranking #{idx} - [METRICA MATCH HUMANO: {cand['porcentaje_afinidad']}%]")
+                    print(f"  • Identidad: {cand['nombre']} | {cand['correo']}")
+                    
+                    # --- NUEVA INFORMACIÓN EN PANTALLA ---
+                    nivel_acad = json_data.get('nivel_academico_maximo', 'No especificado')
+                    experiencia = json_data.get('anios_experiencia_total', 0)
+                    print(f"  • Nivel Academico: {nivel_acad}")
+                    print(f"  • Experiencia Total: {experiencia} años consolidados")
+                    print(f"  • Puntero Fisico: {cand['pdf_origen']}")
+                    
+                    # Truncamos el perfil a 150 caracteres para mantener la consola limpia
+                    perfil = json_data.get('perfil_profesional', 'No disponible')
+                    perfil_truncado = perfil[:150] + "..." if len(perfil) > 150 else perfil
+                    print(f"  • Extracto Perfil: {perfil_truncado}")
+                    print("-" * 70)
+                    
         except Exception as e:
             print(f"\n[ERROR CRITICO] Error de ejecucion en motor de busqueda vectorial hibrido: {e}")
 

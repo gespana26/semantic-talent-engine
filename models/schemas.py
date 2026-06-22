@@ -24,7 +24,9 @@ class CandidateStructure(BaseModel):
     correo_electronico: str
     telefono_movil: str
     ubicacion: str = Field(default="No especificada")
-    nivel_academico_maximo: str = Field(description="Ej: Bachiller, Profesional, Especializacion, Maestria")
+    # --- CAMBIO CRÍTICO: Obligamos a extraer el título exacto ---
+    nivel_academico_maximo: str = Field(description="Nombre exacto del titulo obtenido. Ej: Ingeniero Industrial, Administrador de Empresas, Industrial Engineer")
+    # -----------------------------------------------------------
     educacion_detalle: List[str] = Field(description="Lista de titulos o cursos formales")
     anios_experiencia_total: int = Field(description="Suma total de años de experiencia profesional (numero entero)")
     historial_laboral: List[ExperienciaLaboral]

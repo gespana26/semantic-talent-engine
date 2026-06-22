@@ -48,7 +48,13 @@ class VacancyOrchestrator:
             
             db_manager.store_vacancy(vacancy_json, timestamp_creacion, timestamp_expiracion)
             
-            return {"status": "success", "operacion": "edicion" if es_edicion else "creacion", "coleccion": nombre_tabla}
+            # --- el orquestador devuelve el estado Y los datos extraídos ---
+            return {
+                "status": "success", 
+                "operacion": "edicion" if es_edicion else "creacion", 
+                "coleccion": nombre_tabla,
+                "datos_extraidos": vacancy_json.model_dump() # Entrega el JSON limpio a la consola
+            }
         finally:
             if image_paths:
                 self.extractor.clear_temp_images(image_paths)
