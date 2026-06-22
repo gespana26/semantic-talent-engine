@@ -1,0 +1,6 @@
+# Dev dependencies for local development and testing.
+# Includes all production deps plus tooling not needed at runtime.
+-r requirements.txt
+
+# --- TEST RUNNER ---
+pytest>=8.0
