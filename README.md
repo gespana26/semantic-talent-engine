@@ -1,75 +1,158 @@
-tfm/
-│
-├── config/
-│   ├── __init__.py
-│   └── settings.py              # Configuración global, credenciales y banderas (DEBUG_MODE) para que borre o no las imágenes y JSON
-│
-├── models/
-│   ├── __init__.py
-│   ├── schemas.py               # Contratos de datos estrictos (Pydantic: Vacancy y Query)
-│   └── ai_provider.py           # Proveedor cognitivo (OpenAI / Inferencia local Gemma)
-│
-├── core/
-│   ├── __init__.py
-│   ├── extractor.py             # Pipeline de conversión de PDF a imágenes PNG (PyMuPDF)
-│   ├── database.py              # Capa de datos y persistencia en ChromaDB (Silos y Bolsa Global)
-│   ├── search_engine.py         # Motor de búsqueda semántica y cálculo formal de afinidad
-│   ├── query_translator.py      # Agente traductor de lenguaje natural local a sintaxis JSON
-│   └── orchestrator.py          # Cerebro del sistema (VacancyOrchestrator y CandidateOrchestrator)
-│
-├── storage/                     # Almacenamiento desacoplado (Excluido de Git / Persistente)
-│   ├── chroma_vector_db/        # Archivos binarios e índices nativos de ChromaDB
-│   └── cv_files/                # Repositorio físico de PDFs originales de los candidatos
-│
-├── temp_cv_images/              # Directorio temporal de procesamiento de páginas PNG
-│
-├── main_vacancy_test.py         # Script de pruebas: Ingesta y edición de vacantes
-├── main_candidate_test.py       # Script de pruebas: Postulación de candidatos y doble indexación
-└── main_search_test.py          # Script de pruebas: Búsqueda avanzada con filtros MongoDB-style
+# Semantic Talent Engine
 
- Explicación Breve de Cada Módulo:
- Carpeta config/
-				settings.py (Módulo de Configuración y Utilidades):
-				Actúa como el origen único de la verdad para los parámetros del sistema. 
-				Centraliza las rutas de almacenamiento, las claves de API, la selección del modelo de lenguaje y, de forma crítica, la bandera DEBUG_MODE. 
-				Además, contiene las funciones deterministas para normalizar y limpiar los nombres de las colecciones de ChromaDB en tiempo de ejecución.
- 
- Carpeta models/
-				schemas.py (Capa de Validación y Contratos de Datos):
-							Define las estructuras rígidas del sistema utilizando Pydantic.
-							Modela cómo debe lucir una vacante (sueldo, habilidades, vigencia) y cómo debe estructurarse una consulta traducida. 
-							Esto inmuniza al sistema contra datos mal formados o alucinaciones de formato por parte de los LLMs.
+ATS (*Applicant Tracking System*) inteligente impulsado por IA multimodal que automatiza el matching entre vacantes y candidatos usando búsqueda semántica sobre vectores. Procesa documentos PDF reales —no formularios planos— y permite a los reclutadores buscar talento en lenguaje natural sin conocer operadores de base de datos.
 
-				ai_provider.py (Capa de Abstracción de IA):
-							Encapsula toda la comunicación con los modelos fundacionales (ya sea la API en la nube de OpenAI o el modelo local Gemma 4 a través de Ollama).
-							Se encarga de la extracción de entidades desde imágenes y de ejecutar la Conciliación Semántica de Entidades para evitar duplicar vacantes en la infraestructura.
- 
- Carpeta core/ (Núcleo de la Lógica de Negocio)
-				extractor.py (Pipeline de Ingesta Gráfica):
-							Es el componente encargado de transformar documentos PDF complejos en imágenes PNG de alta resolución (300 DPI) usando la librería PyMuPDF.
-							Esto permite que los modelos multimodales procesen el currículum o la vacante respetando su diseño visual y espacial 
-							
-				database.py (Manejador de Persistencia Vectorial): Gobierna las interacciones de escritura en ChromaDB. 
-							Implementa las funciones .upsert() para asegurar la idempotencia del sistema y encapsula la lógica de almacenamiento de metadatos, guardando únicamente
-							la ruta del archivo físico bajo una arquitectura desacoplada.
-							
-				search_engine.py (Motor de Recuperación Avanzada): Interroga a las colecciones de ChromaDB.
-							Su función principal es realizar búsquedas semánticas híbridas y traducir la distancia matemática de coseno en una métrica de valor de negocio:
-							el Porcentaje de Afinidad Humana ($1 - \text{distancia}$).
-							
-				query_translator.py (Compilador Lingüístico Local): 
-							Un agente especializado de IA local que toma las peticiones en lenguaje natural de los reclutadores y las compila a un diccionario estructurado
-							compatible con la sintaxis de filtros de ChromaDB (estilo MongoDB: $and, $contains), abstrayendo al usuario de la complejidad técnica.
-							
-				orchestrator.py (Cerebro del Sistema / Orquestador de Procesos): Dirige los flujos de trabajo de punta a punta. Tiene 2 métodos:
-							VacancyOrchestrator: Coordina la ingesta de ofertas de empleo, calcula de forma determinista las marcas de tiempo para el control de vigencia (Query-Time TTL) y gestiona la conciliación de nombres.
-							CandidateOrchestrator: Gobierna la postulación de candidatos ejecutando la estrategia de Doble Indexación (Dual-Indexing), guardando simultáneamente la información en el silo cerrado de la vacante y en la bolsa de empleo global de la empresa.
- 
- Carpeta storage/ (Persistencia Desacoplada)
-				(carpeta) chroma_vector_db/: Contenedor de la base de datos vectorial donde se guardan los embeddings (vectores matemáticos) y los metadatos indexados de alta velocidad.
-				(carpeta) cv_files/: El almacén de objetos local donde se respaldan físicamente los PDFs originales renombrados con identificadores únicos.
- 
- Justificación de Arquitectura TFM:
- El sistema fue diseñado bajo un enfoque estrictamente modular y desacoplado, aplicando los principios SOLID de la ingeniería de software.
- La lógica de persistencia (ChromaDB) está completamente aislada de la lógica cognitiva (AI Providers) y de la lógica de orquestación de procesos (Core Orchestrators).
- Esta separación de conceptos garantiza que el sistema pueda migrar de un proveedor de IA en la nube (OpenAI) a un modelo de lenguaje 100% local (Gemma 4) o cambiar el motor de vectores subyacente sin necesidad de refactorizar el código de la interfaz de usuario o alterar las reglas de negocio principales."
+Proyecto desarrollado como Trabajo de Fin de Máster (TFM).
+
+---
+
+## Qué resuelve
+
+Los ATS tradicionales funcionan con filtros exactos: pedís "5 años de experiencia en Python" y perdés al candidato que escribió "5+ años liderando equipos con Django". El reclutador termina haciendo el trabajo real fuera del sistema.
+
+Semantic Talent Engine ataca tres problemas de raíz:
+
+| Problema | Cómo lo resuelve |
+|---|---|
+| PDFs con layouts complejos que rompen los parsers de texto | Convierte cada página a imagen de alta resolución y la procesa con un modelo multimodal (visión + lenguaje) |
+| Búsqueda por keywords que ignora el contexto semántico | Embeddings vectoriales en ChromaDB con cálculo de porcentaje de afinidad real |
+| Duplicación de vacantes y silos de datos desconectados | Conciliación semántica de identidades y estrategia de doble indexación (silo de vacante + bolsa global) |
+
+---
+
+## Quick start
+
+```bash
+# 1. Clonar y crear entorno virtual
+git clone <repo-url>
+cd semantic-talent-engine
+python -m venv .venv
+.venv\Scripts\activate   # Windows
+# source .venv/bin/activate  # Linux/Mac
+
+# 2. Instalar dependencias
+pip install -r requirements.txt
+
+# 3. Configurar el proveedor de IA
+cp .env.example .env
+# Editar .env con tu OPENAI_API_KEY o configurar Ollama
+
+# 4. Ejecutar
+python main.py
+```
+
+---
+
+## Proveedores de IA soportados
+
+El sistema abstrae completamente la capa cognitiva. Elegís el proveedor en el archivo `.env` y el código de negocio no cambia.
+
+| Proveedor | Variable `.env` | Requisito |
+|---|---|---|
+| OpenAI (GPT-4o-mini) | `AI_PROVIDER_TYPE=openai` | API key |
+| Ollama local (Gemma) | `AI_PROVIDER_TYPE=ollama` | Ollama corriendo en `localhost:11434` |
+
+El switch de proveedor se resuelve en tiempo de ejecución por inyección de dependencias —no hay ifs dispersos por el código—.
+
+---
+
+## Arquitectura
+
+```
+┌─────────────────────────────────────────────────┐
+│                  CLI (ui/)                       │
+│        Menú interactivo: vacantes, candidatos,   │
+│        búsqueda semántica                        │
+└────────────────────┬────────────────────────────┘
+                     │
+┌────────────────────▼────────────────────────────┐
+│            Core Orchestrators                    │
+│  VacancyOrchestrator  │  CandidateOrchestrator   │
+│  - Ingesta + TTL      │  - Postulación           │
+│  - Conciliación       │  - Doble indexación      │
+└──────┬───────────────┴──────────┬───────────────┘
+       │                           │
+┌──────▼──────┐  ┌──────────┐  ┌──▼───────────────┐
+│  AI Provider │  │ Search   │  │  Vector Store    │
+│  (models/)   │  │ Engine   │  │  (ChromaDB)      │
+│              │  │          │  │                   │
+│  OpenAI/Ollama│  │ Afinidad │  │  Silo + Global    │
+│  Extracción  │  │ Híbrida  │  │  Pool            │
+│  multimodal  │  │          │  │                   │
+└─────────────┘  └──────────┘  └──────────────────┘
+```
+
+**Principio arquitectónico**: los orquestadores dependen de una interfaz, no de una implementación concreta de IA. Cambiar de OpenAI a Ollama es cambiar una variable de entorno —cero cambios en la lógica de negocio—.
+
+---
+
+## Funcionalidades
+
+### Para el reclutador
+- **Ingesta de vacantes** desde texto libre o PDF corporativo con extracción multimodal
+- **Edición inteligente** con conciliación semántica que detecta si la vacante ya existe y la actualiza en lugar de duplicarla
+- **Búsqueda en lenguaje natural**: _"buscame un ingeniero civil con experiencia en obras hidráulicas y que hable inglés"_
+- **Filtros MongoDB-style** generados automáticamente por el QueryTranslator sin que el usuario toque un operador
+- **Porcentaje de afinidad** legible por humanos (no distancia de coseno cruda)
+
+### Para el candidato
+- **Postulación** con formulario + CV en PDF
+- **Doble indexación**: el perfil queda asociado a la vacante específica Y disponible en la bolsa global para futuras búsquedas
+
+---
+
+## Estructura del proyecto
+
+```
+semantic-talent-engine/
+├── config/           # settings.py: rutas, credenciales, DEBUG_MODE
+├── models/           # schemas.py (Pydantic), ai_provider.py (OpenAI/Ollama)
+├── core/             # Lógica de negocio
+│   ├── orchestrator.py    # VacancyOrchestrator + CandidateOrchestrator
+│   ├── extractor.py       # PDF → PNG (PyMuPDF, 300 DPI)
+│   ├── database.py        # Capa de persistencia en ChromaDB
+│   ├── search_engine.py   # Búsqueda semántica + cálculo de afinidad
+│   ├── query_translator.py # Lenguaje natural → filtros ChromaDB
+│   └── cli_console.py     # Interfaz de línea de comandos
+├── ui/               # Capa de presentación
+├── storage/          # Datos persistentes (excluido de Git)
+│   ├── chroma_vector_db/  # Índices vectoriales
+│   └── cv_files/          # PDFs originales de candidatos
+├── tests/            # Tests unitarios con pytest
+├── main.py           # Punto de entrada
+└── requirements.txt
+```
+
+### Decisiones de diseño
+
+| Decisión | Motivo |
+|---|---|
+| PDF → imágenes antes que texto | Los layouts de CVs reales (columnas, tablas, íconos) rompen cualquier parser de texto. Un modelo multimodal entiende la página como la ve un humano |
+| ChromaDB sobre Pinecone/Weaviate | Zero-deps de infraestructura cloud. Corre 100% local para el TFM sin servicios externos |
+| Doble indexación | Si un candidato postula a "Ingeniero Civil", su perfil debe aparecer tanto en esa vacante como en búsquedas globales de "Ingeniero Estructural" —sin duplicar embeddings— |
+| Query-Time TTL | La vigencia de la vacante se evalúa al momento de la búsqueda, no con jobs programados. Simplifica la infraestructura |
+| Pydantic como contrato | Inmuniza el sistema contra alucinaciones de formato del LLM. Si el modelo devuelve un JSON inválido, Pydantic lo rechaza antes de llegar a la base de datos |
+
+---
+
+## Tests
+
+```bash
+pip install -r requirements-dev.txt
+pytest tests/ -v
+```
+
+---
+
+## Stack tecnológico
+
+| Capa | Tecnología |
+|---|---|
+| Lenguaje | Python 3.x |
+| Vector DB | ChromaDB |
+| Extracción PDF | PyMuPDF (300 DPI) |
+| Procesamiento de imagen | Pillow |
+| Modelos de IA | OpenAI GPT-4o-mini / Ollama + Gemma |
+| Validación de datos | Pydantic |
+| Testing | pytest |
+| Configuración | python-dotenv |
