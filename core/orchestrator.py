@@ -95,7 +95,7 @@ class CandidateOrchestrator:
                 "id_vacante_silo": id_en_vacante,
                 "id_bolsa_global": id_en_global,
                 "ruta_pdf_fisico": ruta_persistente_pdf,
-                "datos_extraidos": candidate_data_pydantic.model_dump()  # <-- NUEVO: Retorna el diccionario limpio de Pydantic v2
+                "datos_extraidos": candidate_data_pydantic.model_dump()  
             }
         finally:
             if image_paths:

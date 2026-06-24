@@ -62,11 +62,11 @@ class CVSearchEngine:
                     metadata = results['metadatas'][0][i]
                     distance = results['distances'][0][i]
                     
-                    # 2. Primera Guillotina (IA): Filtramos por alucinación semántica
+                    # 2. Primer filtro (IA): Filtramos por alucinación semántica
                     if distance > UMBRAL_MAXIMO_DISTANCIA:
                         continue
                         
-                    # 3. Segunda Guillotina (Python): Evaluamos las reglas duras (Obligatorio/Excluyente)
+                    # 3. Segund filtro (Python): Evaluamos las reglas duras (Obligatorio/Excluyente)
                     if not self._evaluar_filtro_python(metadata, where_filter):
                         continue
                     
