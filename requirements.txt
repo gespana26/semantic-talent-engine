@@ -13,3 +13,7 @@ PyMuPDF==1.25.3
 
 # --- PROCESAMIENTO DE IMAGENES evaluar la imagen justo antes de enviársela a Ollama---
 Pillow==12.2.0
+
+# --- SEGURIDAD Y AUTENTICACION proteccion del dashboard y hash de contraseñas ---
+PyJWT>=2.8.0
+bcrypt>=4.0.0

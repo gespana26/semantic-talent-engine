@@ -37,20 +37,20 @@ class QueryTranslator:
             "query_text_conceptual": "Industrial Engineer, Ingeniero Industrial, multitasking skills, habilidades de multitarea, problem solving, resolucion de problemas",
             "where_filter": {
                 "$or": [
-                    {"nivel_academico_maximo": {"$contains": "Industrial"}},
-                    {"perfil_profesional": {"$contains": "Engineer"}}
+                    {"perfil_profesional": {"$contains": "Ingeniero Industrial"}},
+                    {"perfil_profesional": {"$contains": "Industrial Engineer"}}
                 ]
             }
         }
 
-        User input: "Experiencia en Java y AWS, excluyente que sea Desarrollador"
+        User input: "Experiencia en AWS, excluyente que sea Desarrollador Backend"
         Output:
         {
-            "query_text_conceptual": "Java programming, programacion en Java, AWS cloud, nube AWS, software development architecture",
+            "query_text_conceptual": "Backend development, desarrollo backend, AWS cloud, nube AWS, software architecture",
             "where_filter": {
                 "$or": [
-                    {"perfil_profesional": {"$contains": "Desarrollador"}},
-                    {"perfil_profesional": {"$contains": "Developer"}}
+                    {"perfil_profesional": {"$contains": "Desarrollador Backend"}},
+                    {"perfil_profesional": {"$contains": "Backend Developer"}}
                 ]
             }
         }
@@ -67,7 +67,7 @@ class QueryTranslator:
         1. NEVER include instruction words (like 'OBLIGATORIO', 'EXCLUYENTE', 'MANDATORY') inside 'query_text_conceptual'. Those words destroy the mathematical vector semantics.
         2. BILINGUAL CONCEPTUALIZATION: In 'query_text_conceptual', ALWAYS include the core concepts in BOTH Spanish and English separated by commas. This guarantees mathematical vector proximity regardless of the CV's original language.
         3. ONLY output a populated 'where_filter' if the user explicitly typed 'OBLIGATORIO', 'EXCLUYENTE' or 'DEBE TENER'. Otherwise, leave it as {}.
-        4. When a mandatory profession/role is requested, ALWAYS mimic the "$or" structure shown in the examples, extracting ONLY the single root word.
+        4. PRESERVE THE FULL EXACT PHRASE: When a mandatory profession/role is requested, NEVER summarize it into a single root word. You MUST use the exact full phrase (e.g., "Ingeniero Industrial" or "Desarrollador Backend") inside the "$contains" operator.
         5. Return ONLY a valid JSON object. No markdown formatting outside the JSON, no explanations.
         """
 

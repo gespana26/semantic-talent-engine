@@ -23,10 +23,11 @@ class CVVectorStoreManager:
             metadata={"hnsw:space": "cosine", "cargo_original": nombre_cargo}
         )
 
-    def store_vacancy(self, vacancy_data: VacancyStructure, creado_en: int, expira_en: int) -> str:
+    def store_vacancy(self, vacancy_data: VacancyStructure, creado_en: int, expira_en: int, texto_original: str = None) -> str:
         """Inserta o actualiza de forma idempotente el nodo raíz descriptor de la oferta laboral."""
         try:
             skills_str = ", ".join(vacancy_data.hard_skills)
+            # Este es el texto vectorizado optimizado para el buscador RAG
             document_text = f"Cargo: {vacancy_data.titulo_cargo}\nPerfil: {vacancy_data.perfil_general}\nHabilidades: {skills_str}"
             
             metadata = {
@@ -36,10 +37,12 @@ class CVVectorStoreManager:
                 "experiencia_anos": int(vacancy_data.experiencia_minima_anos),
                 "hard_skills": skills_str,
                 "soft_skills": ", ".join(vacancy_data.soft_skills),
-                "fecha_creacion_int": creado_en,
-                "fecha_expiracion_int": expira_en,
+                "timestamp_creacion": creado_en,      
+                "timestamp_expiracion": expira_en,    
+                "texto_original": texto_original if texto_original else "Texto original no disponible",
                 "raw_json": vacancy_data.model_dump_json() 
             }
+
             self.collection.upsert(
                 documents=[document_text],
                 metadatas=[metadata],

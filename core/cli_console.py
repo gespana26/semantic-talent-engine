@@ -2,9 +2,45 @@
 
 import os
 import json
+import threading
 from config import settings
-from core.query_translator import QueryTranslator  # <-- CORREGIDO: Importacion alineada al nuevo motor dinamico
+from config.settings import clean_collection_name
+from core.query_translator import QueryTranslator  
 from core.search_engine import CVSearchEngine
+from core.email_service import enviar_alerta_talento
+
+# =====================================================================
+# FUNCIÓN FANTASMA (SEGUNDO PLANO) PARA ALERTAS DE AFINIDAD
+# =====================================================================
+def evaluar_y_notificar_background(silo_destino, datos_extraidos):
+    """Ejecuta un auto-match silencioso. Si el candidato es Top y >= 85%, alerta al reclutador."""
+    try:
+        if not silo_destino:
+            return 
+            
+        coleccion_target = clean_collection_name(silo_destino)
+        buscador = CVSearchEngine(collection_name=coleccion_target)
+        texto_vacante = buscador.obtener_perfil_vacante()
+        
+        if not texto_vacante:
+            return
+            
+        candidatos_top = buscador.search_candidates(query_text=texto_vacante, limit=10)
+        
+        correo_nuevo = str(datos_extraidos.get('correo_electronico', '')).lower().strip()
+        nombre_nuevo = datos_extraidos.get('nombre_completo', 'Candidato Destacado')
+        extracto = datos_extraidos.get('perfil_profesional', 'Extracto no disponible')[:250] + "..."
+        
+        for cand in candidatos_top:
+            if cand.get('correo', '').lower().strip() == correo_nuevo:
+                afinidad = cand.get('porcentaje_afinidad', 0)
+                if afinidad >= 85.0:
+                    enviar_alerta_talento(nombre_nuevo, silo_destino, afinidad, extracto)
+                break 
+                
+    except Exception:
+        pass # Silencioso en la consola para no interrumpir la experiencia del usuario
+
 
 class RECRUITMENTConsoleApp:
     """Controlador de la interfaz de usuario que orquesta el flujo visual de la consola CLI."""
@@ -57,16 +93,10 @@ class RECRUITMENTConsoleApp:
             print("  PERFIL DE VACANTE ESTRUCTURADO POR IA (NORMALIZADO)")
             print("="*60)
             
-            # Asumimos que el orquestador devuelve los datos extraidos. 
-            # Si tiene la llave 'datos_extraidos' (como el de candidatos) usamos esa, sino mostramos el resultado completo.
             datos_mostrar = resultado.get("datos_extraidos", resultado)
-            
-            # Imprimimos el diccionario de la vacante de forma elegante
             print(json.dumps(datos_mostrar, indent=2, ensure_ascii=False))
             print("="*60)
-            # ---------------------------------------------
             
-            # Mensaje de confirmacion original blindado con .get() por seguridad
             operacion = resultado.get('operacion', 'EXITO').upper()
             coleccion = resultado.get('coleccion', 'Base Vectorial')
             print(f"\n[TRANSACCION COMPLETA] Estado Operativo: {operacion} | Catalogo Destino: {coleccion}")
@@ -81,7 +111,7 @@ class RECRUITMENTConsoleApp:
         correo = input("Direccion de Email de contacto: ").strip()
         telefono = input("Numero telefonico movil: ").strip()
         perfil_declarado = input("Extracto o declaracion profesional sumaria: ").strip()
-        cargo_objetivo = input("Identificacion de nomenclatura del cargo destino: ").strip()
+        cargo_objetivo = input("Identificacion de nomenclatura del cargo destino (Deje vacío para Global): ").strip()
         
         raw_path = input("Ruta fisica local indexada al recurso PDF del CV: ").strip().strip("'\"")
 
@@ -90,25 +120,19 @@ class RECRUITMENTConsoleApp:
             
         pdf_path = os.path.normpath(raw_path)
 
-        # --- PIPELINE DE AUTO-CURACION PARA VALIDACION EN WINDOWS ---
         if not os.path.exists(pdf_path):
-            nombre_base = os.path.basename(pdf_path) # Extrae solo '1_HV_LUIS_FERNANDO.pdf'
+            nombre_base = os.path.basename(pdf_path)
             
-            # Intento 1: ¿El archivo esta en la misma carpeta desde donde corre el programa?
             if os.path.exists(nombre_base):
                 pdf_path = os.path.abspath(nombre_base)
-            
-            # Intento 2: ¿Tiene el problema de la doble extension oculta (.pdf.pdf)?
             elif os.path.exists(pdf_path + ".pdf"):
                 pdf_path = pdf_path + ".pdf"
-                
-            # Intento 3: ¿Esta en la misma carpeta Y ADEMAS tiene doble extension (.pdf.pdf)?
             elif os.path.exists(nombre_base + ".pdf"):
                 pdf_path = os.path.abspath(nombre_base + ".pdf")
 
-        # Verificacion final post-curacion
-        if not (nombre and correo and telefono and cargo_objetivo and pdf_path):
-            print("[ALERTA] Validacion de campos fallida.")
+        # Verificacion final post-curacion (cargo_objetivo ahora es opcional en la validación)
+        if not (nombre and correo and telefono and pdf_path):
+            print("[ALERTA] Validacion de campos fallida (Nombre, Correo, Teléfono y CV son obligatorios).")
             return
             
         if not os.path.exists(pdf_path):
@@ -124,13 +148,22 @@ class RECRUITMENTConsoleApp:
                 pdf_path=pdf_path, cargo_objetivo=cargo_objetivo, datos_formulario=datos_formulario
             )
             
+            # 🚀 AQUÍ SE LANZA EL HILO EN SEGUNDO PLANO PARA LA CONSOLA CLI
+            if cargo_objetivo.strip():
+                hilo_alerta = threading.Thread(
+                    target=evaluar_y_notificar_background,
+                    args=(cargo_objetivo, res.get("datos_extraidos", {}))
+                )
+                hilo_alerta.start()
+            # -------------------------------------------------------------
+            
             print("\n" + "="*60)
             print("  DATOS EXTRAIDOS DEL CV (PROCESAMIENTO MULTIMODAL)")
             print("="*60)
             print(json.dumps(res["datos_extraidos"], indent=2, ensure_ascii=False))
             print("="*60)
             
-            print(f"\n[TRANSACCION COMPLETA] Indexacion Dual Exitosa.\n -> Silo ID Referencial: {res['id_vacante_silo']}\n -> Global Ledger ID: {res['id_bolsa_global']}")
+            print(f"\n[TRANSACCION COMPLETA] Indexacion Dual Exitosa.\n -> Silo ID Referencial: {res.get('id_vacante_silo', 'N/A')}\n -> Global Ledger ID: {res['id_bolsa_global']}")
         except Exception as e:
             print(f"\n[ERROR CRITICO] Quiebre de secuencia en pipeline multimodal de candidato: {e}")
 

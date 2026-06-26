@@ -18,6 +18,11 @@ AI_PROVIDER_TYPE = os.getenv("AI_PROVIDER_TYPE", "openai")
 MODEL_NAME = os.getenv("MODEL_NAME", "gpt-4o-mini")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "placeholder_key_clean")
 
+# --- CONFIGURACIÓN DE CORREO ELECTRÓNICO ---
+EMAIL_SENDER_USER = os.getenv("EMAIL_SENDER_USER")
+EMAIL_SENDER_PASSWORD = os.getenv("EMAIL_SENDER_PASSWORD")
+EMAIL_RECRUITER_TARGET = os.getenv("EMAIL_RECRUITER_TARGET")
+
 # --- OBSERVABILIDAD DEL SISTEMA ---
 # Convertimos el string del .env a un booleano real
 DEBUG_MODE = os.getenv("DEBUG_MODE", "True").lower() in ("true", "1", "t")

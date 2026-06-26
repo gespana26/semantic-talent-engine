@@ -29,7 +29,14 @@ class VacancyOrchestrator:
 
             # --- GENERACIÓN ARITMÉTICA DE MARCAS DE TIEMPO (Query-Time TTL) ---
             fecha_actual = datetime.now()
-            fecha_expiracion = fecha_actual + timedelta(days=vacancy_json.dias_vigencia)
+            
+            # 📌 REGLA DE NEGOCIO: 30 DÍAS POR DEFECTO
+            # Extraemos los días de forma defensiva. Si es 0 o None, aplicamos 30.
+            dias_vigencia = getattr(vacancy_json, 'dias_vigencia', 0)
+            if not dias_vigencia or dias_vigencia <= 0:
+                dias_vigencia = 30
+                
+            fecha_expiracion = fecha_actual + timedelta(days=dias_vigencia)
             
             timestamp_creacion = int(fecha_actual.strftime("%Y%m%d"))
             timestamp_expiracion = int(fecha_expiracion.strftime("%Y%m%d"))
@@ -46,7 +53,13 @@ class VacancyOrchestrator:
             db_manager.collection_name = nombre_tabla
             db_manager.collection = db_manager.client.get_or_create_collection(name=nombre_tabla)
             
-            db_manager.store_vacancy(vacancy_json, timestamp_creacion, timestamp_expiracion)
+            # 📌 PASAMOS EL TEXTO ORIGINAL COMO EQUIPAJE OCULTO
+            db_manager.store_vacancy(
+                vacancy_json, 
+                timestamp_creacion, 
+                timestamp_expiracion,
+                texto_original=raw_text 
+            )
             
             # --- el orquestador devuelve el estado Y los datos extraídos ---
             return {
@@ -67,13 +80,21 @@ class CandidateOrchestrator:
         self.ai_provider = ai_provider
         self.extractor = CVImageExtractor()
 
-    def process_and_register_candidate(self, pdf_path: str, cargo_objetivo: str, datos_formulario: dict) -> dict:
+    def process_and_register_candidate(self, pdf_path: str, cargo_objetivo: str = "", datos_formulario: dict = None) -> dict:
         """Ejecuta la ruta de ingesta de alta densidad copiando el archivo al storage e indexando mediante arquitectura de Doble Índice."""
+        
+        # BLINDAJE: Si la web no envía datos del formulario, creamos un diccionario vacío
+        if datos_formulario is None:
+            datos_formulario = {}
+            
         image_paths = []
         try:
             # 1. Almacenamiento Desacoplado de Objetos (Persistencia física de archivos de respaldo)
             os.makedirs(settings.LOCAL_STORAGE_CV_PATH, exist_ok=True)
-            nombre_archivo_final = f"CV_{datos_formulario.get('telefono')}_{os.path.basename(pdf_path)}"
+            
+            # BLINDAJE: Si no hay teléfono, usamos "0000" para que el archivo no se llame "CV_None_..."
+            telefono = datos_formulario.get('telefono', '0000')
+            nombre_archivo_final = f"CV_{telefono}_{os.path.basename(pdf_path)}"
             ruta_persistente_pdf = os.path.join(settings.LOCAL_STORAGE_CV_PATH, nombre_archivo_final)
             shutil.copy(pdf_path, ruta_persistente_pdf)
 
@@ -82,9 +103,13 @@ class CandidateOrchestrator:
             candidate_data_pydantic = self.ai_provider.parse_cv_images_to_json(image_paths)
 
             # --- ARQUITECTURA CONCURRENTE DE DOBLE INDEXACIÓN (Dual-Indexing) ---
-            # Índice Destino A: Pipeline cerrado asignado al silo exclusivo de la vacante
-            db_vacante = CVVectorStoreManager(nombre_cargo=cargo_objetivo)
-            id_en_vacante = db_vacante.store_candidate(candidate_data_pydantic, ruta_persistente_pdf, datos_formulario)
+            id_en_vacante = None
+            
+            # Índice Destino A: Pipeline cerrado (Solo si el candidato especificó un cargo)
+            cargo_limpio = cargo_objetivo.strip() if cargo_objetivo else ""
+            if cargo_limpio and cargo_limpio.lower() != "talento-global-empresa":
+                db_vacante = CVVectorStoreManager(nombre_cargo=cargo_limpio)
+                id_en_vacante = db_vacante.store_candidate(candidate_data_pydantic, ruta_persistente_pdf, datos_formulario)
 
             # Índice Destino B: Repositorio consolidado histórico global corporativo
             db_global = CVVectorStoreManager(nombre_cargo="talento-global-empresa")
@@ -95,7 +120,7 @@ class CandidateOrchestrator:
                 "id_vacante_silo": id_en_vacante,
                 "id_bolsa_global": id_en_global,
                 "ruta_pdf_fisico": ruta_persistente_pdf,
-                "datos_extraidos": candidate_data_pydantic.model_dump()  
+                "datos_extraidos": candidate_data_pydantic.model_dump() 
             }
         finally:
             if image_paths:
