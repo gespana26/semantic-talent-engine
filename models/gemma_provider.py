@@ -1,9 +1,14 @@
 import json
+import logging
 import re
 import ollama
 from typing import Dict, Any, List
 from .interfaces import BaseLLMProvider
+from .observability import observe, _update_span
 from config import settings
+
+logger = logging.getLogger(__name__)
+
 
 class GemmaMultimodalProvider(BaseLLMProvider):
     """Proveedor local de IA que implementa capacidades multimodales
@@ -28,11 +33,26 @@ class GemmaMultimodalProvider(BaseLLMProvider):
         return cleaned.strip()
 
     def _attempt_self_correction(self, broken_json_text: str, error_message: str) -> Dict[str, Any]:
-        """CAPA DE AUTO-CORRECCIÓN: Pide al modelo reparar los delimitadores 
+        """CAPA DE AUTO-CORRECCIÓN: Pide al modelo reparar los delimitadores
 
         del JSON dañado sin volver a procesar las imágenes pesadas.
+
+        Cada intento se traza como un child span propio con el conteo de
+        intento y el outcome, reflejando el ciclo de auto-correccion en la
+        UI de Langfuse.
         """
-        print(f"[IA - ADVERTENCIA] JSON malformado detectado. Iniciando auto-corrección...")
+        return self._attempt_self_correction_traced(broken_json_text, error_message)
+
+    @observe()
+    def _attempt_self_correction_traced(self, broken_json_text: str, error_message: str) -> Dict[str, Any]:
+        """Implementacion trazada del intento de auto-correccion (child span).
+
+        Cada intento se etiqueta con attempt_count y outcome para visualizar
+        el ciclo de auto-correccion en la UI de Langfuse.
+        """
+        # Etiquetar el span del intento de auto-correccion
+        _update_span(attempt_count=1, stage="self_correction")
+        logger.warning("JSON malformado detectado. Iniciando auto-corrección...")
         
         correction_prompt = f"""
         El siguiente texto debería ser un objeto JSON válido pero tiene un error de sintaxis: "{error_message}".
@@ -54,9 +74,15 @@ class GemmaMultimodalProvider(BaseLLMProvider):
         )
         
         corrected_content = self._clean_llm_response(response["message"]["content"])
-        return json.loads(corrected_content)
+        result = json.loads(corrected_content)
+        _update_span(outcome="success")
+        return result
 
     def parse_cv_images_to_json(self, image_paths: List[str]) -> Dict[str, Any]:
+        return self._parse_cv_images_to_json_traced(image_paths)
+
+    @observe()
+    def _parse_cv_images_to_json_traced(self, image_paths: List[str]) -> Dict[str, Any]:
         raw_content = ""
         try:
             messages = [
@@ -75,20 +101,24 @@ class GemmaMultimodalProvider(BaseLLMProvider):
             )
 
             raw_content = response["message"]["content"]
-            
+
             # 1. Limpieza inicial de la cadena
             cleaned_content = self._clean_llm_response(raw_content)
-            
+
             # 2. Intentar parsear el JSON estándar
             return json.loads(cleaned_content)
 
         except json.JSONDecodeError as json_error:
             # 3. Si falla el parseo por delimitadores (tu error actual), se activa la auto-corrección
-            print(f"[IA - ERROR SINTAXIS] Falló la lectura directa: {json_error}")
+            logger.warning("Falló la lectura directa del JSON: %s", json_error)
+            # Clasificar el error en la traza para distinguir JSON parse failure
+            _update_span(error_type="json_parse_failure", error_message=str(json_error))
             try:
                 return self._attempt_self_correction(raw_content, str(json_error))
             except Exception as e:
+                _update_span(error_type="self_correction_failure", error_message=str(e))
                 raise RuntimeError(f"La auto-corrección de JSON también falló: {str(e)}")
-                
+
         except Exception as e:
+            _update_span(error_type="inference_failure", error_message=str(e))
             raise RuntimeError(f"Error en inferencia multimodal con Gemma 4: {str(e)}")

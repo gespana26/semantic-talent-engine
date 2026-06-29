@@ -3,16 +3,35 @@
 import json
 import base64
 import re
-from openai import OpenAI
+from openai import OpenAI as _NativeOpenAI
 import ollama
 from config import settings
 from models.schemas import VacancyStructure, CandidateStructure
+from models.observability import observe, get_langfuse_client, _update_generation
+
 
 class OpenAIProvider:
     """Gestiona la extraccion profunda de datos no estructurados mediante endpoints de OpenAI con ejecucion de Structured Outputs."""
-    
+
     def __init__(self):
-        self.client = OpenAI(api_key=settings.OPENAI_API_KEY)
+        # Drop-in tracing de Langfuse: si LANGFUSE_ENABLED, sustituimos el SDK
+        # nativo por `langfuse.openai.OpenAI` inyectando el cliente configurado
+        # con mask_pii. Si esta deshabilitado, usamos el SDK nativo de OpenAI.
+        # En ambos casos los cuerpos de los metodos permanecen sin cambios.
+        # Circuito de tracing: Langfuse se registra como cliente activo del
+        # proceso al inicializarse. `langfuse.openai.OpenAI` lo detecta
+        # automaticamente y aplica su configuracion (incluyendo mask_pii).
+        # No se pasa langfuse_client explicitamente — la doc indica que la
+        # integracion usa el cliente activo del proceso sin parametros extra.
+        if get_langfuse_client() is not None:
+            try:
+                from langfuse.openai import OpenAI as _LangfuseOpenAI
+                self.client = _LangfuseOpenAI(api_key=settings.OPENAI_API_KEY)
+            except Exception:
+                # Circuit breaker: caer al SDK nativo si la sustitucion falla.
+                self.client = _NativeOpenAI(api_key=settings.OPENAI_API_KEY)
+        else:
+            self.client = _NativeOpenAI(api_key=settings.OPENAI_API_KEY)
         self.model = settings.MODEL_NAME
 
     def _encode_image(self, image_path: str) -> str:
@@ -98,7 +117,16 @@ class LocalOllamaProvider:
 
     def parse_cv_images_to_json(self, image_paths: list) -> CandidateStructure:
         """Procesa objetos graficos de curriculos mediante pipelines locales de vision."""
-        
+        return self._parse_cv_images_to_json_traced(image_paths)
+
+    @observe()
+    def _parse_cv_images_to_json_traced(self, image_paths: list) -> CandidateStructure:
+        """Implementacion trazada del parseo de CV por imagenes (Ollama nativo).
+
+        Token counts son best-effort: si el SDK de Ollama los expone se
+        registran; si no, no se falla (requisito: Ollama token counts
+        best-effort).
+        """
         # --- Prompt Engineering Estricto con Esquema Forzado ---
         system_prompt = """
         Eres un extractor de datos de CVs experto. Analiza la imagen y extrae la informacion de forma concisa.
@@ -135,6 +163,15 @@ class LocalOllamaProvider:
                 "temperature": 0.0
             }
         )
+
+        # Token counts best-effort desde la respuesta de Ollama
+        prompt_tokens = response.get("prompt_eval_count")
+        completion_tokens = response.get("eval_count")
+        if prompt_tokens is not None or completion_tokens is not None:
+            _update_generation(
+                prompt_tokens=prompt_tokens or 0,
+                completion_tokens=completion_tokens or 0,
+            )
         
         raw_content = response["message"]["content"]
         json_limpio = self._extract_clean_json(raw_content)
@@ -144,6 +181,11 @@ class LocalOllamaProvider:
 
     def parse_vacancy(self, raw_text: str = None, image_paths: list = None) -> VacancyStructure:
         """Transforma una descripcion de cargo en un layout JSON estructurado."""
+        return self._parse_vacancy_traced(raw_text, image_paths)
+
+    @observe()
+    def _parse_vacancy_traced(self, raw_text: str = None, image_paths: list = None) -> VacancyStructure:
+        """Implementacion trazada del parseo de vacante (Ollama nativo)."""
         system_prompt = """
         Estructure los parametros de datos provistos.
         REGLA CRITICA: Devuelve UNICAMENTE un objeto JSON valido. Cero explicaciones extra.
@@ -154,7 +196,7 @@ class LocalOllamaProvider:
         response = ollama.chat(
             model=self.model,
             messages=[
-                {"role": "system", "content": system_prompt}, 
+                {"role": "system", "content": system_prompt},
                 {"role": "user", "content": content, "images": images}
             ],
             options={
@@ -163,15 +205,20 @@ class LocalOllamaProvider:
                 "temperature": 0.0
             }
         )
-        
+
         json_limpio = self._extract_clean_json(response["message"]["content"])
         return VacancyStructure.model_validate_json(json_limpio)
 
     def reconcile_vacancy_name(self, nuevo_titulo: str, colecciones_existentes: list) -> str:
         """Resuelve la distancia semantica de strings sobre esquemas activos."""
-        if not colecciones_existentes: 
+        return self._reconcile_vacancy_name_traced(nuevo_titulo, colecciones_existentes)
+
+    @observe()
+    def _reconcile_vacancy_name_traced(self, nuevo_titulo: str, colecciones_existentes: list) -> str:
+        """Implementacion trazada de la reconciliacion de nombre (Ollama nativo)."""
+        if not colecciones_existentes:
             return "NUEVA"
-            
+
         prompt = f"Evalue si la entrada '{nuevo_titulo}' coincide con el contexto de metadatos de alguno de estos indices: {colecciones_existentes}. Responda exclusivamente con la cadena del indice o devuelva la palabra 'NUEVA'."
         response = ollama.chat(model=self.model, messages=[{"role": "user", "content": prompt}])
         return response["message"]["content"].strip()

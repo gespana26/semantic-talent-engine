@@ -18,6 +18,7 @@ storage/
 chroma_db/
 temp_cv_images/
 *.sqlite3
+*.db
 
 # Local AI/agent generated metadata
 .atl/
