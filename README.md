@@ -1,6 +1,6 @@
 # Semantic Talent Engine
 
-ATS (*Applicant Tracking System*) inteligente impulsado por IA multimodal que automatiza el matching entre vacantes y candidatos usando búsqueda semántica sobre vectores. Procesa documentos PDF reales —no formularios planos— y permite a los reclutadores buscar talento en lenguaje natural sin conocer operadores de base de datos.
+ATS (*Applicant Tracking System*) inteligente con interfaz web (Streamlit) impulsado por IA multimodal. Automatiza el matching entre vacantes y candidatos usando búsqueda semántica sobre vectores, procesa documentos PDF reales —no formularios planos— y alerta por email cuando detecta talento de alto ajuste.
 
 Proyecto desarrollado como Trabajo de Fin de Máster (TFM).
 
@@ -24,7 +24,7 @@ Semantic Talent Engine ataca tres problemas de raíz:
 
 ```bash
 # 1. Clonar y crear entorno virtual
-git clone <repo-url>
+git clone https://github.com/jpcamilo/semantic-talent-engine.git
 cd semantic-talent-engine
 python -m venv .venv
 .venv\Scripts\activate   # Windows
@@ -33,13 +33,30 @@ python -m venv .venv
 # 2. Instalar dependencias
 pip install -r requirements.txt
 
-# 3. Configurar el proveedor de IA
+# 3. Configurar el entorno
 cp .env.example .env
-# Editar .env con tu OPENAI_API_KEY o configurar Ollama
+# Editar .env con tu OPENAI_API_KEY, credenciales de email, etc.
 
-# 4. Ejecutar
-python main.py
+# 4. Ejecutar la app web
+streamlit run app.py
 ```
+
+**Acceso inicial al dashboard**: usuario `admin` / contraseña `admin123` (cambiala apenas entres).
+
+---
+
+## Configuración del entorno (`.env`)
+
+| Variable | Obligatoria | Descripción |
+|---|---|---|
+| `AI_PROVIDER_TYPE` | Sí | `openai` o `ollama` |
+| `OPENAI_API_KEY` | Con OpenAI | Tu API key de OpenAI |
+| `MODEL_NAME` | No | Modelo a usar (default: `gpt-4o-mini`) |
+| `DEBUG_MODE` | No | `True` conserva imágenes temporales y activa telemetría |
+| `EMAIL_SENDER_USER` | No | Correo Gmail para enviar alertas de talento |
+| `EMAIL_SENDER_PASSWORD` | No | App password de Gmail |
+| `EMAIL_RECRUITER_TARGET` | No | Correo del reclutador que recibe las alertas |
+| `JWT_SECRET_KEY` | No | Clave para firmar tokens JWT |
 
 ---
 
@@ -59,27 +76,39 @@ El switch de proveedor se resuelve en tiempo de ejecución por inyección de dep
 ## Arquitectura
 
 ```
-┌─────────────────────────────────────────────────┐
-│                  CLI (ui/)                       │
-│        Menú interactivo: vacantes, candidatos,   │
-│        búsqueda semántica                        │
-└────────────────────┬────────────────────────────┘
-                     │
-┌────────────────────▼────────────────────────────┐
-│            Core Orchestrators                    │
-│  VacancyOrchestrator  │  CandidateOrchestrator   │
-│  - Ingesta + TTL      │  - Postulación           │
-│  - Conciliación       │  - Doble indexación      │
-└──────┬───────────────┴──────────┬───────────────┘
-       │                           │
-┌──────▼──────┐  ┌──────────┐  ┌──▼───────────────┐
-│  AI Provider │  │ Search   │  │  Vector Store    │
-│  (models/)   │  │ Engine   │  │  (ChromaDB)      │
-│              │  │          │  │                   │
-│  OpenAI/Ollama│  │ Afinidad │  │  Silo + Global    │
-│  Extracción  │  │ Híbrida  │  │  Pool            │
-│  multimodal  │  │          │  │                   │
-└─────────────┘  └──────────┘  └──────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│                   INTERFAZ WEB (Streamlit)                │
+│  ┌─────────────────────┐  ┌──────────────────────────┐   │
+│  │  Portal Candidato   │  │  Dashboard Reclutador 🔒  │   │
+│  │  Postulación + CV    │  │  Búsqueda + Silos + Email │   │
+│  └─────────┬───────────┘  └────────────┬─────────────┘   │
+└────────────┼──────────────────────────┼─────────────────┘
+             │                            │
+┌────────────▼────────────────────────────▼─────────────────┐
+│                    Core Orchestrators                      │
+│  VacancyOrchestrator       │  CandidateOrchestrator        │
+│  - Ingesta + TTL           │  - Postulación                │
+│  - Conciliación semántica  │  - Doble indexación           │
+│                             │  - Auto-match background      │
+└──────┬─────────────────────┴──────────┬───────────────────┘
+       │                                  │
+┌──────▼──────┐  ┌──────────┐  ┌─────────▼────────┐  ┌──────────────┐
+│ AI Provider │  │  Search   │  │  Vector Store    │  │  Security    │
+│ (models/)   │  │  Engine   │  │  (ChromaDB)      │  │  (JWT+bcrypt)│
+│             │  │           │  │                  │  │              │
+│ OpenAI/     │  │ Afinidad  │  │  Silo + Global   │  │  Login        │
+│ Ollama      │  │ Híbrida   │  │  Pool            │  │  reclutador   │
+│ Extracción  │  │           │  │                  │  │              │
+│ multimodal  │  │           │  │                  │  │              │
+└──────┬──────┘  └──────────┘  └──────────────────┘  └──────────────┘
+       │
+┌──────▼──────────┐
+│  Email Service  │
+│  (SMTP Gmail)   │
+│                 │
+│  Alerta cuando  │
+│  afinidad ≥ 85% │
+└─────────────────┘
 ```
 
 **Principio arquitectónico**: los orquestadores dependen de una interfaz, no de una implementación concreta de IA. Cambiar de OpenAI a Ollama es cambiar una variable de entorno —cero cambios en la lógica de negocio—.
@@ -88,16 +117,27 @@ El switch de proveedor se resuelve en tiempo de ejecución por inyección de dep
 
 ## Funcionalidades
 
-### Para el reclutador
-- **Ingesta de vacantes** desde texto libre o PDF corporativo con extracción multimodal
-- **Edición inteligente** con conciliación semántica que detecta si la vacante ya existe y la actualiza en lugar de duplicarla
-- **Búsqueda en lenguaje natural**: _"buscame un ingeniero civil con experiencia en obras hidráulicas y que hable inglés"_
-- **Filtros MongoDB-style** generados automáticamente por el QueryTranslator sin que el usuario toque un operador
-- **Porcentaje de afinidad** legible por humanos (no distancia de coseno cruda)
+### Interfaz web (Streamlit)
 
-### Para el candidato
-- **Postulación** con formulario + CV en PDF
+Dos espacios separados por pestañas, cada uno con su flujo completo:
+
+#### 🎓 Portal del Candidato
+- **Postulación** con formulario + CV en PDF procesado por IA multimodal
+- **Auto-match silencioso**: al postularse, un hilo en background evalúa la afinidad contra la vacante objetivo
 - **Doble indexación**: el perfil queda asociado a la vacante específica Y disponible en la bolsa global para futuras búsquedas
+
+#### 🏢 Dashboard del Reclutador (protegido con login)
+- **Autenticación JWT**: acceso restringido con usuario/contraseña (bcrypt)
+- **Ingesta de vacantes** desde texto libre o PDF corporativo con extracción multimodal
+- **Edición inteligente** con conciliación semántica que detecta si la vacante ya existe y la actualiza sin duplicar
+- **Sidebar de silos activos** con vencimiento visible y acceso rápido a cada vacante
+- **Búsqueda híbrida** con comandos naturales: `/crear vacante:`, `/match:`, `/nombre:` y consultas en lenguaje natural
+- **Porcentaje de afinidad** legible por humanos (no distancia de coseno cruda)
+- **Filtros MongoDB-style** generados automáticamente por el QueryTranslator
+
+### Alertas por email
+
+Cuando un candidato se postula y su afinidad con la vacante supera el **85%**, el sistema envía automáticamente un correo HTML al reclutador con el perfil, el porcentaje de match y un extracto del CV. Si no se configuran las credenciales SMTP, la funcionalidad se desactiva silenciosamente sin romper la app.
 
 ---
 
@@ -105,22 +145,30 @@ El switch de proveedor se resuelve en tiempo de ejecución por inyección de dep
 
 ```
 semantic-talent-engine/
-├── config/           # settings.py: rutas, credenciales, DEBUG_MODE
-├── models/           # schemas.py (Pydantic), ai_provider.py (OpenAI/Ollama)
-├── core/             # Lógica de negocio
-│   ├── orchestrator.py    # VacancyOrchestrator + CandidateOrchestrator
-│   ├── extractor.py       # PDF → PNG (PyMuPDF, 300 DPI)
-│   ├── database.py        # Capa de persistencia en ChromaDB
-│   ├── search_engine.py   # Búsqueda semántica + cálculo de afinidad
-│   ├── query_translator.py # Lenguaje natural → filtros ChromaDB
-│   └── cli_console.py     # Interfaz de línea de comandos
-├── ui/               # Capa de presentación
-├── storage/          # Datos persistentes (excluido de Git)
-│   ├── chroma_vector_db/  # Índices vectoriales
-│   └── cv_files/          # PDFs originales de candidatos
-├── tests/            # Tests unitarios con pytest
-├── main.py           # Punto de entrada
-└── requirements.txt
+├── app.py                # Punto de entrada (Streamlit)
+├── views/                # Interfaz web
+│   ├── portal.py              # Portal del candidato
+│   ├── dashboard.py           # Dashboard del reclutador (login JWT)
+│   └── components.py          # Componentes reutilizables
+├── config/               # settings.py: rutas, credenciales, DEBUG_MODE
+├── models/               # schemas.py (Pydantic), ai_provider.py (OpenAI/Ollama)
+├── core/                 # Lógica de negocio
+│   ├── orchestrator.py        # VacancyOrchestrator + CandidateOrchestrator
+│   ├── extractor.py           # PDF → PNG (PyMuPDF, 300 DPI)
+│   ├── database.py            # Capa de persistencia en ChromaDB
+│   ├── search_engine.py       # Búsqueda semántica + cálculo de afinidad
+│   ├── query_translator.py    # Lenguaje natural → filtros ChromaDB
+│   ├── security.py            # JWT + bcrypt + SQLite (usuarios)
+│   ├── email_service.py       # Alertas SMTP para candidatos top
+│   └── cli_console.py         # Interfaz alternativa por terminal
+├── ui/                   # Capa de presentación
+├── storage/              # Datos persistentes (excluido de Git)
+│   ├── chroma_vector_db/      # Índices vectoriales
+│   └── cv_files/              # PDFs originales de candidatos
+├── tests/                # Tests unitarios con pytest
+├── main.py               # CLI alternativa (python main.py)
+├── requirements.txt
+└── .env.example
 ```
 
 ### Decisiones de diseño
@@ -131,7 +179,10 @@ semantic-talent-engine/
 | ChromaDB sobre Pinecone/Weaviate | Zero-deps de infraestructura cloud. Corre 100% local para el TFM sin servicios externos |
 | Doble indexación | Si un candidato postula a "Ingeniero Civil", su perfil debe aparecer tanto en esa vacante como en búsquedas globales de "Ingeniero Estructural" —sin duplicar embeddings— |
 | Query-Time TTL | La vigencia de la vacante se evalúa al momento de la búsqueda, no con jobs programados. Simplifica la infraestructura |
-| Pydantic como contrato | Inmuniza el sistema contra alucinaciones de formato del LLM. Si el modelo devuelve un JSON inválido, Pydantic lo rechaza antes de llegar a la base de datos |
+| Pydantic como contrato | Inmuniza el sistema contra alucinaciones de formato del LLM |
+| JWT stateless | Sin sesiones en servidor. El token viaja en `st.session_state` y expira en 8 horas |
+| Auto-match en background | El candidato no espera. Un `threading.Thread` ejecuta la búsqueda y dispara el email si corresponde |
+| Email fails silently | Si faltan credenciales SMTP, la app sigue funcionando normalmente —las alertas son un plus, no un requisito |
 
 ---
 
@@ -149,10 +200,13 @@ pytest tests/ -v
 | Capa | Tecnología |
 |---|---|
 | Lenguaje | Python 3.x |
+| Interfaz web | Streamlit |
 | Vector DB | ChromaDB |
 | Extracción PDF | PyMuPDF (300 DPI) |
 | Procesamiento de imagen | Pillow |
 | Modelos de IA | OpenAI GPT-4o-mini / Ollama + Gemma |
 | Validación de datos | Pydantic |
+| Autenticación | PyJWT + bcrypt + SQLite |
+| Email | smtplib (Gmail SMTP) |
 | Testing | pytest |
 | Configuración | python-dotenv |
