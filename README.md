@@ -57,6 +57,10 @@ streamlit run app.py
 | `EMAIL_SENDER_PASSWORD` | No | App password de Gmail |
 | `EMAIL_RECRUITER_TARGET` | No | Correo del reclutador que recibe las alertas |
 | `JWT_SECRET_KEY` | No | Clave para firmar tokens JWT |
+| `LANGFUSE_ENABLED` | No | `True` activa el tracing de llamadas LLM |
+| `LANGFUSE_HOST` | Con Langfuse | `http://localhost:3000` (self-hosted) o `https://cloud.langfuse.com` |
+| `LANGFUSE_PUBLIC_KEY` | Con Langfuse | Clave pública de tu proyecto Langfuse |
+| `LANGFUSE_SECRET_KEY` | Con Langfuse | Clave secreta de tu proyecto Langfuse |
 
 ---
 
@@ -151,7 +155,7 @@ semantic-talent-engine/
 │   ├── dashboard.py           # Dashboard del reclutador (login JWT)
 │   └── components.py          # Componentes reutilizables
 ├── config/               # settings.py: rutas, credenciales, DEBUG_MODE
-├── models/               # schemas.py (Pydantic), ai_provider.py (OpenAI/Ollama)
+├── models/               # schemas.py (Pydantic), ai_provider.py (OpenAI/Ollama), observability.py (Langfuse)
 ├── core/                 # Lógica de negocio
 │   ├── orchestrator.py        # VacancyOrchestrator + CandidateOrchestrator
 │   ├── extractor.py           # PDF → PNG (PyMuPDF, 300 DPI)
@@ -166,6 +170,12 @@ semantic-talent-engine/
 │   ├── chroma_vector_db/      # Índices vectoriales
 │   └── cv_files/              # PDFs originales de candidatos
 ├── tests/                # Tests unitarios con pytest
+│   ├── unit/
+│   │   ├── test_settings.py
+│   │   ├── test_schemas.py
+│   │   ├── test_langfuse_settings.py
+│   │   ├── test_pii_masking.py
+│   │   └── test_provider_observability_init.py
 ├── main.py               # CLI alternativa (python main.py)
 ├── requirements.txt
 └── .env.example
@@ -183,6 +193,22 @@ semantic-talent-engine/
 | JWT stateless | Sin sesiones en servidor. El token viaja en `st.session_state` y expira en 8 horas |
 | Auto-match en background | El candidato no espera. Un `threading.Thread` ejecuta la búsqueda y dispara el email si corresponde |
 | Email fails silently | Si faltan credenciales SMTP, la app sigue funcionando normalmente —las alertas son un plus, no un requisito |
+| Tracing no bloquea | Si Langfuse no está disponible o `LANGFUSE_ENABLED=False`, el parseo de CVs y vacantes sigue funcionando sin degradación |
+| PII masking en traces | Los campos personales del candidato (nombre, email, teléfono, ubicación, educación, historial laboral) se redactan a nivel SDK antes de salir de la app |
+
+---
+
+## Observabilidad LLM (Langfuse)
+
+El sistema incluye tracing automático de todas las llamadas a modelos de lenguaje mediante Langfuse:
+
+- **OpenAI**: tracing automático vía drop-in import — cero cambios en el cuerpo de los métodos
+- **Ollama**: tracing vía decoradores `@observe()` con metadatos de modelo, latencia y outcome
+- **Costos**: tracking automático de tokens y costo USD en llamadas OpenAI
+- **Errores**: clasificación automática de fallos de parseo JSON y reintentos de auto-corrección
+- **PII masking**: 7 campos de datos personales se redactan antes de que los traces salgan de la aplicación
+
+Para activarlo, configurá las variables `LANGFUSE_*` en tu `.env`. Funciona tanto con una instancia self-hosted (Docker) como con Langfuse Cloud.
 
 ---
 
@@ -209,4 +235,5 @@ pytest tests/ -v
 | Autenticación | PyJWT + bcrypt + SQLite |
 | Email | smtplib (Gmail SMTP) |
 | Testing | pytest |
+| Observabilidad LLM | Langfuse (tracing, costos, PII masking) |
 | Configuración | python-dotenv |
