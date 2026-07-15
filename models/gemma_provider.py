@@ -1,3 +1,9 @@
+"""
+⚠️ EXPERIMENTAL — GemmaMultimodalProvider no está integrado en ningún flujo runtime
+del proyecto (main.py, CLI, ni vistas Streamlit). Existe como código exploratorio para
+evaluación de modelos locales alternativos. Los tests unitarios verifican su inicialización
+pero el provider no se usa en producción.
+"""
 import json
 import logging
 import re
@@ -18,7 +24,11 @@ class GemmaMultimodalProvider(BaseLLMProvider):
     
     def __init__(self):
         self.model_name = settings.MODEL_NAME
-        self.system_prompt = settings.SYSTEM_PROMPT
+        if hasattr(settings, "SYSTEM_PROMPT"):
+            self.system_prompt = settings.SYSTEM_PROMPT
+        else:
+            self.system_prompt = ""
+            logger.warning("settings.SYSTEM_PROMPT not defined; GemmaMultimodalProvider is experimental and not integrated into runtime flows")
 
     def _clean_llm_response(self, raw_content: str) -> str:
         """Elimina posibles bloques de código markdown (```json ... ```) 

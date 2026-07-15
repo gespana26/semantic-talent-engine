@@ -11,10 +11,11 @@ from config import settings
 # Idealmente, añade JWT_SECRET_KEY=tu_clave_super_secreta a tu archivo .env
 SECRET_KEY = os.getenv("JWT_SECRET_KEY", "ats_talent_engine_super_secret_key_2026")
 ALGORITHM = "HS256"
-DB_PATH = "usuarios.db"
+DB_PATH = os.getenv("USUARIOS_DB_PATH", os.path.join(os.path.dirname(os.path.dirname(__file__)), "storage", "usuarios.db"))
 
 def init_db():
     """Inicializa la base de datos de usuarios y crea un reclutador por defecto si está vacía."""
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     

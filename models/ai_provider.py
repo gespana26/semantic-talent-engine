@@ -26,12 +26,12 @@ class OpenAIProvider:
         if get_langfuse_client() is not None:
             try:
                 from langfuse.openai import OpenAI as _LangfuseOpenAI
-                self.client = _LangfuseOpenAI(api_key=settings.OPENAI_API_KEY)
+                self.client = _LangfuseOpenAI(api_key=settings.OPENAI_API_KEY, timeout=30.0, max_retries=1)
             except Exception:
                 # Circuit breaker: caer al SDK nativo si la sustitucion falla.
-                self.client = _NativeOpenAI(api_key=settings.OPENAI_API_KEY)
+                self.client = _NativeOpenAI(api_key=settings.OPENAI_API_KEY, timeout=30.0, max_retries=1)
         else:
-            self.client = _NativeOpenAI(api_key=settings.OPENAI_API_KEY)
+            self.client = _NativeOpenAI(api_key=settings.OPENAI_API_KEY, timeout=30.0, max_retries=1)
         self.model = settings.MODEL_NAME
 
     def _encode_image(self, image_path: str) -> str:

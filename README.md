@@ -158,24 +158,24 @@ semantic-talent-engine/
 ├── models/               # schemas.py (Pydantic), ai_provider.py (OpenAI/Ollama), observability.py (Langfuse)
 ├── core/                 # Lógica de negocio
 │   ├── orchestrator.py        # VacancyOrchestrator + CandidateOrchestrator
-│   ├── extractor.py           # PDF → PNG (PyMuPDF, 300 DPI)
+│   ├── extractor.py           # PDF → PNG (PyMuPDF, zoom 1.5x, ~108 DPI equivalentes)
 │   ├── database.py            # Capa de persistencia en ChromaDB
 │   ├── search_engine.py       # Búsqueda semántica + cálculo de afinidad
 │   ├── query_translator.py    # Lenguaje natural → filtros ChromaDB
 │   ├── security.py            # JWT + bcrypt + SQLite (usuarios)
 │   ├── email_service.py       # Alertas SMTP para candidatos top
 │   └── cli_console.py         # Interfaz alternativa por terminal
-├── ui/                   # Capa de presentación
 ├── storage/              # Datos persistentes (excluido de Git)
 │   ├── chroma_vector_db/      # Índices vectoriales
 │   └── cv_files/              # PDFs originales de candidatos
 ├── tests/                # Tests unitarios con pytest
-│   ├── unit/
-│   │   ├── test_settings.py
-│   │   ├── test_schemas.py
-│   │   ├── test_langfuse_settings.py
-│   │   ├── test_pii_masking.py
-│   │   └── test_provider_observability_init.py
+│   ├── conftest.py
+│   └── unit/
+│       ├── test_settings.py
+│       ├── test_schemas.py
+│       ├── test_langfuse_settings.py
+│       ├── test_pii_masking.py
+│       └── test_provider_observability_init.py
 ├── main.py               # CLI alternativa (python main.py)
 ├── requirements.txt
 └── .env.example
@@ -212,6 +212,18 @@ Para activarlo, configurá las variables `LANGFUSE_*` en tu `.env`. Funciona tan
 
 ---
 
+## Reset Utility (`purgar_db.py`)
+
+⚠️ **Destructive operation** — deletes all ChromaDB collections and data.
+
+```bash
+python purgar_db.py
+```
+
+Use only when you need a clean slate for testing or re-indexing.
+
+---
+
 ## Tests
 
 ```bash
@@ -228,7 +240,7 @@ pytest tests/ -v
 | Lenguaje | Python 3.x |
 | Interfaz web | Streamlit |
 | Vector DB | ChromaDB |
-| Extracción PDF | PyMuPDF (300 DPI) |
+| Extracción PDF | PyMuPDF (zoom 1.5x, ~108 DPI equivalentes) |
 | Procesamiento de imagen | Pillow |
 | Modelos de IA | OpenAI GPT-4o-mini / Ollama + Gemma |
 | Validación de datos | Pydantic |
