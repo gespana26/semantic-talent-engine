@@ -1,3 +1,4 @@
+import json
 import streamlit as st
 from config import settings
 from config.settings import clean_collection_name
@@ -138,7 +139,7 @@ def render_dashboard_reclutador():
                             "correo": c.get('correo_electronico'), 
                             "porcentaje_afinidad": "Léxico", 
                             "pdf_origen": c.get('pdf_file_path'),
-                            "perfil_completo_json": c
+                            "perfil_completo_json": json.loads(c.get('raw_json', '{}')) if c.get('raw_json') else c
                         }
                         for c in candidatos if c.get('nombre_completo')
                     ]
