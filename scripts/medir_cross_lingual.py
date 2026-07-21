@@ -48,9 +48,15 @@ COLECCION_GLOBAL = "talento-global-empresa"
 ID_VACANTE = "VACANTE_PRINCIPAL"
 
 
-def _perfil(nombre, nivel, anios, resumen, tecnicas, blandas):
-    """Compone un documento con la misma forma que usa el sistema."""
-    return (f"Candidato: {nombre}\nNivel Académico: {nivel}\n"
+def _perfil(nivel, anios, resumen, tecnicas, blandas):
+    """Compone un documento con la misma forma que usa el sistema.
+
+    Sin línea de nombre, como el documento real: la identidad vive en los
+    metadatos y no entra en el embedding. Aquí importa además por otra razón —
+    un nombre traducido ("Perfil de prueba" / "Test profile") habría metido
+    señal de idioma en el propio texto, que es justo la variable que se mide.
+    """
+    return (f"Nivel Académico: {nivel}\n"
             f"Años de Experiencia Total: {anios}\nPerfil Profesional: {resumen}\n"
             f"Habilidades Técnicas: {tecnicas}\nCompetencias Blandas: {blandas}")
 
@@ -59,57 +65,57 @@ def _perfil(nombre, nivel, anios, resumen, tecnicas, blandas):
 # idioma, de modo que la distancia dentro de un par mide exclusivamente eso.
 PARES = [
     ("Analista de datos", "PERTINENTE",
-     _perfil("Perfil de prueba", "Ingeniería de Sistemas", 6,
+     _perfil("Ingeniería de Sistemas", 6,
              "Análisis de grandes volúmenes de datos para identificar y mitigar riesgos "
              "financieros y operativos en el sector financiero.",
              "Bases de datos, Ciencia de datos, Modelos predictivos, SQL",
              "Habilidades analíticas, Comunicación"),
-     _perfil("Test profile", "Systems Engineering", 6,
+     _perfil("Systems Engineering", 6,
              "Analysis of large data volumes to identify and mitigate financial and "
              "operational risks in the financial sector.",
              "Databases, Data science, Predictive models, SQL",
              "Analytical skills, Communication")),
 
     ("Jefe de proyecto", "PERTINENTE",
-     _perfil("Perfil de prueba", "Ingeniería Industrial", 8,
+     _perfil("Ingeniería Industrial", 8,
              "Liderar y gestionar proyectos tecnológicos, levantando requerimientos "
              "funcionales del cliente interno bajo metodologías ágiles.",
              "Metodologías ágiles, Scrum, Gestión de proyectos, Jira",
              "Liderazgo, Negociación"),
-     _perfil("Test profile", "Industrial Engineering", 8,
+     _perfil("Industrial Engineering", 8,
              "Lead and manage technology projects, gathering functional requirements "
              "from internal stakeholders under agile methodologies.",
              "Agile methodologies, Scrum, Project management, Jira",
              "Leadership, Negotiation")),
 
     ("Desarrollador", "PERTINENTE",
-     _perfil("Perfil de prueba", "Ingeniería de Software", 5,
+     _perfil("Ingeniería de Software", 5,
              "Desarrollo de servicios backend y automatización de procesos.",
              "Python, Django, PostgreSQL, Docker",
              "Trabajo en equipo, Autonomía"),
-     _perfil("Test profile", "Software Engineering", 5,
+     _perfil("Software Engineering", 5,
              "Backend service development and process automation.",
              "Python, Django, PostgreSQL, Docker",
              "Teamwork, Autonomy")),
 
     ("Cocina", "AJENO",
-     _perfil("Perfil de prueba", "Escuela de Hostelería", 8,
+     _perfil("Escuela de Hostelería", 8,
              "Jefe de cocina en restaurante de menú diario, elaboración de platos y "
              "control de aprovisionamiento.",
              "Cocina mediterránea, Repostería, Emplatado",
              "Trabajo bajo presión"),
-     _perfil("Test profile", "Culinary School", 8,
+     _perfil("Culinary School", 8,
              "Head chef at a daily-menu restaurant, dish preparation and supply control.",
              "Mediterranean cuisine, Pastry, Plating",
              "Working under pressure")),
 
     ("Enfermería", "AJENO",
-     _perfil("Perfil de prueba", "Grado en Enfermería", 10,
+     _perfil("Grado en Enfermería", 10,
              "Atención a pacientes en planta de hospitalización, administración de "
              "medicación y curas.",
              "Canalización de vías, Triaje, Soporte vital",
              "Empatía"),
-     _perfil("Test profile", "Nursing Degree", 10,
+     _perfil("Nursing Degree", 10,
              "Patient care on the hospital ward, medication administration and wound care.",
              "IV cannulation, Triage, Life support",
              "Empathy")),

@@ -26,3 +26,16 @@ temp_cv_images/
 # Logs
 *.log
 log_*.txt
+logs_borrar.txt
+logs_borrar.txt
+.TFM/
+CV/
+*.pdf
+storage/
+.git/
+.pytest_cache/
+*.txt
+*.log
+*.zip
+*.db
+!requirements-dev.txt

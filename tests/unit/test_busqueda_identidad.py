@@ -9,8 +9,6 @@ documentos en lugar de los metadatos.
 
 from __future__ import annotations
 
-import sys
-import types
 from unittest.mock import MagicMock
 
 import pytest
@@ -42,19 +40,32 @@ class _ColeccionDoble:
 
 @pytest.fixture()
 def buscador(monkeypatch):
-    """Monta el motor sobre el doble, sin ChromaDB ni Ollama."""
-    chromadb = types.ModuleType("chromadb")
-    chromadb.PersistentClient = lambda **kw: types.SimpleNamespace(
-        get_collection=lambda **k: _ColeccionDoble()
-    )
-    utils = types.ModuleType("chromadb.utils")
-    utils.embedding_functions = MagicMock()
-    chromadb.utils = utils
-    monkeypatch.setitem(sys.modules, "chromadb", chromadb)
-    monkeypatch.setitem(sys.modules, "chromadb.utils", utils)
+    """Monta el motor sobre el doble, sin ChromaDB ni Ollama.
 
-    from core.search_engine import CVSearchEngine
-    return CVSearchEngine()
+    Se parchean los atributos del modulo ya importado en lugar de sustituir
+    `chromadb` entero en `sys.modules`. La version anterior hacia lo segundo y
+    solo funcionaba si este fichero se ejecutaba aislado: dentro de la suite
+    completa, `core.search_engine` ya habia importado el chromadb real y seguia
+    usandolo, mientras el falso quedaba en `sys.modules` rompiendo los imports
+    diferidos internos del propio chromadb (`from chromadb import
+    CollectionMetadata` resolvia contra el modulo falso). De ahi los 16 errores
+    de `ImportError: ... (unknown location)`.
+    """
+    from core import search_engine as motor
+
+    class ClienteFalso:
+        def __init__(self, *_a, **_k):
+            pass
+
+        def get_collection(self, *_a, **_k):
+            return _ColeccionDoble()
+
+    monkeypatch.setattr(motor.chromadb, "PersistentClient", ClienteFalso)
+    monkeypatch.setattr(
+        motor.embedding_functions, "OllamaEmbeddingFunction",
+        lambda *_a, **_k: MagicMock()
+    )
+    return motor.CVSearchEngine()
 
 
 def _nombres(resultados):

@@ -43,48 +43,15 @@ from chromadb.utils import embedding_functions
 
 sys.path.insert(0, ".")
 from config import settings  # noqa: E402
+from core.baseline import PERFILES_AJENOS, coseno, normalizar_similitud  # noqa: E402
 from core.search_engine import CVSearchEngine  # noqa: E402
 
 COLECCION_GLOBAL = "talento-global-empresa"
 ID_VACANTE = "VACANTE_PRINCIPAL"
 
-
-# Perfiles de candidato sintéticos, ajenos a cualquier dominio técnico. Definen
-# el cero: la similitud que obtiene alguien sin relación con la vacante.
-PERFILES_AJENOS = [
-    ("Cocina", "Candidato: Perfil de referencia\nNivel Académico: Escuela de Hostelería\n"
-               "Años de Experiencia Total: 8\nPerfil Profesional: Jefe de cocina en restaurante "
-               "de menú diario, elaboración de platos y control de aprovisionamiento.\n"
-               "Habilidades Técnicas: Cocina mediterránea, Repostería, Emplatado\n"
-               "Competencias Blandas: Trabajo bajo presión"),
-    ("Jardinería", "Candidato: Perfil de referencia\nNivel Académico: Formación profesional agraria\n"
-                   "Años de Experiencia Total: 6\nPerfil Profesional: Mantenimiento de zonas verdes, "
-                   "poda de arbolado y riego de parques municipales.\n"
-                   "Habilidades Técnicas: Poda, Riego automático, Maquinaria agrícola\n"
-                   "Competencias Blandas: Autonomía"),
-    ("Enfermería", "Candidato: Perfil de referencia\nNivel Académico: Grado en Enfermería\n"
-                   "Años de Experiencia Total: 10\nPerfil Profesional: Atención a pacientes en "
-                   "planta de hospitalización, administración de medicación y curas.\n"
-                   "Habilidades Técnicas: Canalización de vías, Triaje, Soporte vital\n"
-                   "Competencias Blandas: Empatía"),
-    ("Derecho", "Candidato: Perfil de referencia\nNivel Académico: Licenciatura en Derecho\n"
-                "Años de Experiencia Total: 12\nPerfil Profesional: Defensa de clientes en "
-                "procedimientos penales y redacción de recursos ante la audiencia provincial.\n"
-                "Habilidades Técnicas: Derecho penal, Litigación oral, Redacción jurídica\n"
-                "Competencias Blandas: Oratoria"),
-    ("Pesca", "Candidato: Perfil de referencia\nNivel Académico: Certificado de marinero pescador\n"
-              "Años de Experiencia Total: 15\nPerfil Profesional: Faenas de pesca de altura, "
-              "manejo de artes de arrastre y mantenimiento de cubierta.\n"
-              "Habilidades Técnicas: Artes de arrastre, Navegación costera, Estiba\n"
-              "Competencias Blandas: Resistencia física"),
-]
-
-
-def coseno(a, b) -> float:
-    num = sum(x * y for x, y in zip(a, b))
-    na = sum(x * x for x in a) ** 0.5
-    nb = sum(y * y for y in b) ** 0.5
-    return num / (na * nb) if na and nb else 0.0
+# Los perfiles de referencia y el cálculo de la línea base viven ya en
+# `core/baseline.py`: son producción, no instrumental de medición. Este script
+# mide contra exactamente el mismo conjunto que usa el buscador.
 
 
 def afinidad_actual(cos: float) -> float:
@@ -94,9 +61,7 @@ def afinidad_actual(cos: float) -> float:
 
 def afinidad_normalizada(cos: float, base: float) -> float:
     """Escala el coseno sobre el margen realmente disponible por encima de la línea base."""
-    if base >= 1.0:
-        return 0.0
-    return max(0.0, min(100.0, 100.0 * (cos - base) / (1.0 - base)))
+    return 100.0 * normalizar_similitud(cos, base)
 
 
 def sin_etiquetas(criterio: str) -> str:

@@ -31,6 +31,7 @@ import re
 import unicodedata
 
 from config import settings
+from core.data_hygiene import normalizar_texto
 
 # Palabras sin capacidad discriminante al comparar habilidades.
 VACIAS = {
@@ -41,10 +42,8 @@ LONGITUD_MINIMA_TOKEN = 3
 
 
 def normalizar(texto: str) -> str:
-    """Minúsculas y sin acentos, para que la comparación léxica no falle por tildes."""
-    sin_acentos = unicodedata.normalize("NFKD", str(texto))
-    sin_acentos = "".join(c for c in sin_acentos if not unicodedata.combining(c))
-    return re.sub(r"\s+", " ", sin_acentos.lower()).strip()
+    """Alias de `data_hygiene.normalizar_texto`: una sola implementacion compartida."""
+    return normalizar_texto(texto)
 
 
 def tokens_significativos(texto: str) -> set:

@@ -18,6 +18,15 @@ class ExperienciaLaboral(BaseModel):
     empresa: str = Field(default="", description="Razon social de la organizacion.")
     cargo: str = Field(default="", description="Titulo del rol desempenado.")
     duracion_anios: float = Field(default=0.0, description="Duracion en la empresa en años (ej. 2.5)")
+    # `database.py` leia este campo desde el principio, pero el esquema no lo
+    # definia, de modo que el historial vectorizado quedaba como
+    # "- Data Engineer en Acme (3.5 años):" sin decir que hizo la persona. El
+    # embedding se calculaba entonces sobre cargos y empresas, dejando fuera las
+    # responsabilidades y los logros, que es donde vive la señal discriminante.
+    responsabilidades: str = Field(
+        default="",
+        description="Principales responsabilidades y logros en el puesto, en una o dos frases."
+    )
 
 class CandidateStructure(BaseModel):
     """Contrato de la *extraccion*, no de la *identidad*.

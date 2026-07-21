@@ -133,7 +133,8 @@ def evaluar_postulacion(silo_destino: str, datos_candidato: dict) -> dict:
     """
     veredicto = {
         "alertar": False, "motivo": "", "afinidad": None, "percentil": None,
-        "muestra_banco": 0, "cobertura": None, "titulo_vacante": silo_destino
+        "muestra_banco": 0, "cobertura": None, "desglose": None,
+        "titulo_vacante": silo_destino
     }
 
     if not silo_destino:
@@ -149,8 +150,14 @@ def evaluar_postulacion(silo_destino: str, datos_candidato: dict) -> dict:
     exigidas, titulo = _requisitos_de_la_vacante(buscador)
     veredicto["titulo_vacante"] = titulo or silo_destino
 
+    # La vacante estructurada es lo que permite al buscador puntuar por
+    # componentes. Sin ella `search_candidates` devuelve solo similitud, y la
+    # alerta volvería a decidir sobre una escala distinta de la que ve el
+    # reclutador: exactamente el fallo que motivó este módulo.
+    vacante = buscador.obtener_vacante_estructurada()
+
     correo = str(datos_candidato.get("correo_electronico") or "").lower().strip()
-    candidatos = buscador.search_candidates(query_text=criterio, limit=50)
+    candidatos = buscador.search_candidates(query_text=criterio, limit=50, vacante=vacante)
     propio = next((c for c in candidatos if str(c.get("correo") or "").lower().strip() == correo), None)
     if not propio:
         veredicto["motivo"] = "El candidato no aparece entre los resultados del silo."
@@ -158,15 +165,29 @@ def evaluar_postulacion(silo_destino: str, datos_candidato: dict) -> dict:
 
     afinidad = propio.get("porcentaje_afinidad", 0)
     veredicto["afinidad"] = afinidad
-    distancia = 2 * (1 - afinidad / 100.0)
+    desglose = propio.get("desglose")
+    veredicto["desglose"] = desglose
+
+    # El percentil vive en el espacio de distancias del banco, así que hay que
+    # deshacer la normalización —no la afinidad—. Invertir la afinidad sería
+    # incorrecto: no es una función de la distancia desde que pondera cobertura,
+    # experiencia y formación.
+    base = float(propio.get("linea_base") or 0.0)
+    normalizada = float(propio.get("similitud_normalizada") or 0.0) / 100.0
+    distancia = 1.0 - (normalizada * (1.0 - base) + base)
 
     # --- Señal 1: cobertura de requisitos ---
-    cobertura = evaluar_cobertura(
-        requisitos=exigidas,
-        habilidades_candidato=list(datos_candidato.get("hard_skills") or []),
-        texto_candidato=str(datos_candidato.get("perfil_profesional") or ""),
-        funcion_embeddings=_funcion_embeddings()
-    )
+    # Se reutiliza la del re-puntuado si existe: recalcularla aquí abriría la
+    # puerta a que la alerta y el buscador discrepasen sobre el mismo candidato.
+    if desglose and desglose.get("cobertura"):
+        cobertura = desglose["cobertura"]
+    else:
+        cobertura = evaluar_cobertura(
+            requisitos=exigidas,
+            habilidades_candidato=list(datos_candidato.get("hard_skills") or []),
+            texto_candidato=str(datos_candidato.get("perfil_profesional") or ""),
+            funcion_embeddings=_funcion_embeddings()
+        )
     veredicto["cobertura"] = cobertura
 
     if cobertura["ratio"] < settings.UMBRAL_COBERTURA_REQUISITOS:

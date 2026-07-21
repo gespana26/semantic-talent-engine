@@ -7,7 +7,9 @@ from openai import OpenAI as _NativeOpenAI
 import ollama
 from config import settings
 from models.schemas import VacancyStructure, CandidateStructure
+from models.interfaces import BaseLLMProvider
 from models.observability import observe, get_langfuse_client, _update_generation
+from core.json_sanitizer import extraer_json
 
 
 # Semilla compartida por todas las llamadas de extraccion. Junto con
@@ -15,7 +17,7 @@ from models.observability import observe, get_langfuse_client, _update_generatio
 # produce el mismo perfil en ejecuciones distintas.
 RANDOM_SEED = settings.RANDOM_SEED
 
-class OpenAIProvider:
+class OpenAIProvider(BaseLLMProvider):
     """Gestiona la extraccion profunda de datos no estructurados mediante endpoints de OpenAI con ejecucion de Structured Outputs."""
 
     def __init__(self):
@@ -113,8 +115,28 @@ class OpenAIProvider:
         )
         return response.choices[0].message.content.strip()
 
+    def complete_json(self, system_prompt: str, user_prompt: str) -> str:
+        """Completa un prompt devolviendo JSON crudo, sin esquema fijo.
 
-class LocalOllamaProvider:
+        Es la operacion que sostiene al traductor de consultas. No usa Structured
+        Outputs a proposito: el filtro que produce es un diccionario abierto, y
+        `additionalProperties` lo prohibe. Esa es la limitacion tecnica que el
+        traductor declara, no un descuido.
+        """
+        response = self.client.chat.completions.create(
+            model=self.model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            response_format={"type": "json_object"},
+            temperature=0.0,
+            seed=RANDOM_SEED,
+        )
+        return extraer_json(response.choices[0].message.content)
+
+
+class LocalOllamaProvider(BaseLLMProvider):
     """Gestiona el analisis profundo de documentos mediante modelos locales contenedorizados."""
     
     def __init__(self):
@@ -258,3 +280,25 @@ class LocalOllamaProvider:
             options={"temperature": 0.0, "seed": RANDOM_SEED}
         )
         return response["message"]["content"].strip()
+
+    def complete_json(self, system_prompt: str, user_prompt: str) -> str:
+        """Equivalente local. `format="json"` induce JSON pero no lo garantiza.
+
+        Por eso pasa por el mismo saneador que la extraccion: tener dos limpiezas
+        distintas para el mismo problema fue lo que dejo al traductor sin
+        proteccion mientras la extraccion si la tenia.
+        """
+        return self._complete_json_traced(system_prompt, user_prompt)
+
+    @observe()
+    def _complete_json_traced(self, system_prompt: str, user_prompt: str) -> str:
+        response = ollama.chat(
+            model=self.model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            format="json",
+            options={"temperature": 0.0, "seed": RANDOM_SEED},
+        )
+        return extraer_json(response["message"]["content"])

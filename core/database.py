@@ -129,8 +129,13 @@ class CVVectorStoreManager:
                     
                     historial_str += f"- {cargo} en {empresa}{duracion_txt}: {responsabilidades}\n"
 
+            # El documento vectorizado contiene solo señal profesional. El nombre
+            # queda fuera a propósito: es un canal conocido de señal demográfica
+            # —origen y género— y no aporta capacidad de emparejamiento, porque
+            # el criterio de la vacante no tiene con qué emparejarlo. Los datos de
+            # identidad viven en los metadatos, que es donde la búsqueda por
+            # nombre y por correo los lee (`buscar_candidato_por_identidad`).
             document_text = (
-                f"Candidato: {nombre_final}\n"
                 f"Nivel Académico: {getattr(candidate_data, 'nivel_academico_maximo', 'N/A')}\n"
                 f"Años de Experiencia Total: {getattr(candidate_data, 'anios_experiencia_total', 0)}\n"
                 f"Perfil Profesional: {candidate_data.perfil_profesional}\n"

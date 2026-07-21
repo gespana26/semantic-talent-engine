@@ -14,6 +14,7 @@ Cubre dos responsabilidades emparentadas:
 """
 
 import re
+import unicodedata
 
 PLACEHOLDERS = {
     "",
@@ -87,3 +88,15 @@ def telefono_valido(valor) -> bool:
 
     digitos = [c for c in texto if c.isdigit()]
     return MIN_DIGITOS_TELEFONO <= len(digitos) <= MAX_DIGITOS_TELEFONO
+
+
+def normalizar_texto(valor) -> str:
+    """Minusculas, sin acentos y con los espacios colapsados.
+
+    Comparar identidades sin normalizar hace que buscar "maria" no encuentre a
+    "Maria" con tilde ni "pena" a "Pena" con enye: el reclutador escribe rapido y
+    sin acentos, y hoy eso le oculta candidatos.
+    """
+    sin_acentos = unicodedata.normalize("NFKD", str(valor or ""))
+    sin_acentos = "".join(c for c in sin_acentos if not unicodedata.combining(c))
+    return re.sub(r"\s+", " ", sin_acentos.lower()).strip()

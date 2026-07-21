@@ -28,28 +28,33 @@ a la hora de afirmar que un candidato destaca.
 # la forma del documento real del candidato (mismas etiquetas) porque la
 # estructura compartida contribuye por sí sola a la similitud: medirla con un
 # formato distinto mediría el desemparejamiento de formatos y no el contenido.
+#
+# Por eso ninguno lleva línea de nombre: el documento del candidato dejó de
+# incluirla cuando la identidad se replegó a los metadatos, y estos perfiles
+# tienen que seguir ese formato exactamente. Una línea de más aquí falsearía la
+# línea base a la baja y con ella todas las similitudes normalizadas.
 PERFILES_AJENOS = [
-    ("Cocina", "Candidato: Perfil de referencia\nNivel Académico: Escuela de Hostelería\n"
+    ("Cocina", "Nivel Académico: Escuela de Hostelería\n"
                "Años de Experiencia Total: 8\nPerfil Profesional: Jefe de cocina en restaurante "
                "de menú diario, elaboración de platos y control de aprovisionamiento.\n"
                "Habilidades Técnicas: Cocina mediterránea, Repostería, Emplatado\n"
                "Competencias Blandas: Trabajo bajo presión"),
-    ("Jardinería", "Candidato: Perfil de referencia\nNivel Académico: Formación profesional agraria\n"
+    ("Jardinería", "Nivel Académico: Formación profesional agraria\n"
                    "Años de Experiencia Total: 6\nPerfil Profesional: Mantenimiento de zonas verdes, "
                    "poda de arbolado y riego de parques municipales.\n"
                    "Habilidades Técnicas: Poda, Riego automático, Maquinaria agrícola\n"
                    "Competencias Blandas: Autonomía"),
-    ("Enfermería", "Candidato: Perfil de referencia\nNivel Académico: Grado en Enfermería\n"
+    ("Enfermería", "Nivel Académico: Grado en Enfermería\n"
                    "Años de Experiencia Total: 10\nPerfil Profesional: Atención a pacientes en "
                    "planta de hospitalización, administración de medicación y curas.\n"
                    "Habilidades Técnicas: Canalización de vías, Triaje, Soporte vital\n"
                    "Competencias Blandas: Empatía"),
-    ("Derecho", "Candidato: Perfil de referencia\nNivel Académico: Licenciatura en Derecho\n"
+    ("Derecho", "Nivel Académico: Licenciatura en Derecho\n"
                 "Años de Experiencia Total: 12\nPerfil Profesional: Defensa de clientes en "
                 "procedimientos penales y redacción de recursos ante la audiencia provincial.\n"
                 "Habilidades Técnicas: Derecho penal, Litigación oral, Redacción jurídica\n"
                 "Competencias Blandas: Oratoria"),
-    ("Pesca", "Candidato: Perfil de referencia\nNivel Académico: Certificado de marinero pescador\n"
+    ("Pesca", "Nivel Académico: Certificado de marinero pescador\n"
               "Años de Experiencia Total: 15\nPerfil Profesional: Faenas de pesca de altura, "
               "manejo de artes de arrastre y mantenimiento de cubierta.\n"
               "Habilidades Técnicas: Artes de arrastre, Navegación costera, Estiba\n"
