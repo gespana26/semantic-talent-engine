@@ -8,6 +8,11 @@ import ollama
 from config import settings
 from models.schemas import VacancyStructure, CandidateStructure
 
+# Semilla compartida por todas las llamadas de extraccion. Junto con
+# temperature=0 hace que el pipeline sea reproducible: el mismo documento
+# produce el mismo perfil en ejecuciones distintas.
+RANDOM_SEED = settings.RANDOM_SEED
+
 class OpenAIProvider:
     """Gestiona la extraccion profunda de datos no estructurados mediante endpoints de OpenAI con ejecucion de Structured Outputs."""
     
@@ -22,7 +27,13 @@ class OpenAIProvider:
 
     def parse_cv_images_to_json(self, image_paths: list) -> CandidateStructure:
         """Procesa imagenes de alta resolucion de un CV para transformar componentes no estructurados en una entidad de datos rigida."""
-        system_prompt = "Usted es un parser de vision computacional para sistemas ATS corporativos. Mapee los elementos del documento segun el esquema solicitado."
+        system_prompt = (
+            "Usted es un parser de vision computacional para sistemas ATS corporativos. "
+            "Mapee los elementos del documento segun el esquema solicitado. "
+            "REGLA INNEGOCIABLE: si un dato de contacto (nombre, correo o telefono) no aparece "
+            "literalmente en el documento, devuelva una cadena vacia. NUNCA invente, deduzca ni "
+            "complete correos ni telefonos: un dato de contacto erroneo es peor que uno ausente."
+        )
         content = [{"type": "text", "text": "Extraiga todas las entidades tecnicas y personales de las imagenes del currículum provisto."}]
         
         for path in image_paths:
@@ -35,7 +46,15 @@ class OpenAIProvider:
         completion = self.client.beta.chat.completions.parse(
             model=self.model,
             messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": content}],
-            response_format=CandidateStructure
+            response_format=CandidateStructure,
+            # Extraer no es redactar: ante el mismo documento debe salir el mismo
+            # perfil. Sin fijar estos parametros el modelo usa temperature=1.0, y
+            # se midio el efecto: cuatro extracciones del mismo CV devolvieron
+            # distinto numero de hard skills, de soft skills y hasta un valor
+            # distinto de anios de experiencia. Esa variabilidad se propaga a la
+            # cobertura de requisitos y, por tanto, a la afinidad del candidato.
+            temperature=0.0,
+            seed=RANDOM_SEED
         )
         return completion.choices[0].message.parsed
 
@@ -53,7 +72,12 @@ class OpenAIProvider:
         completion = self.client.beta.chat.completions.parse(
             model=self.model,
             messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": content}],
-            response_format=VacancyStructure
+            response_format=VacancyStructure,
+            # Determinismo por el mismo motivo que en la extraccion del CV: los
+            # requisitos que salgan de aqui son el criterio contra el que se mide
+            # a todos los candidatos del silo.
+            temperature=0.0,
+            seed=RANDOM_SEED
         )
         return completion.choices[0].message.parsed
 
@@ -121,6 +145,11 @@ class LocalOllamaProvider:
         }
         Calcula matematicamente los 'anios_experiencia_total' sumando las duraciones. Debe ser un numero entero.
         No cambies los nombres de las claves. No agregues claves nuevas. Solo devuelve el bloque JSON.
+
+        REGLA INNEGOCIABLE SOBRE DATOS DE CONTACTO: si el nombre, el correo o el telefono no
+        aparecen literalmente en el documento, devuelve una cadena vacia ("") en ese campo.
+        NUNCA inventes, deduzcas ni completes correos ni telefonos. Un dato de contacto erroneo
+        es peor que uno ausente.
         """
         
         response = ollama.chat(
@@ -173,5 +202,12 @@ class LocalOllamaProvider:
             return "NUEVA"
             
         prompt = f"Evalue si la entrada '{nuevo_titulo}' coincide con el contexto de metadatos de alguno de estos indices: {colecciones_existentes}. Responda exclusivamente con la cadena del indice o devuelva la palabra 'NUEVA'."
-        response = ollama.chat(model=self.model, messages=[{"role": "user", "content": prompt}])
+        response = ollama.chat(
+            model=self.model,
+            messages=[{"role": "user", "content": prompt}],
+            # Sin fijarla, Ollama aplica su propia temperatura por defecto. Esta
+            # llamada decide si una vacante se actualiza o se duplica: debe dar
+            # siempre la misma respuesta ante la misma entrada.
+            options={"temperature": 0.0, "seed": RANDOM_SEED}
+        )
         return response["message"]["content"].strip()

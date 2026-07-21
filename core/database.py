@@ -1,9 +1,12 @@
 """Capa de datos encargada de la persistencia transaccional y el mapeo relacional de metadatos dentro del motor de vectores."""
 
+from datetime import datetime
+
 import chromadb
 from chromadb.utils import embedding_functions
 from config import settings
 from config.settings import clean_collection_name
+from core.data_hygiene import primer_dato_valido
 from models.schemas import VacancyStructure, CandidateStructure
 
 class CVVectorStoreManager:
@@ -52,11 +55,65 @@ class CVVectorStoreManager:
         except Exception as e:
             raise RuntimeError(f"Fallo en operación transaccional UPSERT de vacante en base vectorial: {e}")
 
-    def store_candidate(self, candidate_data: CandidateStructure, pdf_path: str, formulario: dict) -> str:
-        """Almacena e indexa el perfil vectorial del candidato asociando metadatos estructurados y su ruta lógica de archivo."""
+    @staticmethod
+    def identificador_candidato(correo: str, nombre: str = "") -> str:
+        """Deriva un identificador estable de la identidad del candidato.
+
+        Cada postulación generaba antes un `uuid4()` nuevo, de modo que el
+        `upsert` siempre insertaba y nunca actualizaba. Eso producía varios
+        registros de la misma persona **dentro de una misma colección**, con tres
+        consecuencias medidas: la ventana de recuperación se gastaba en copias
+        (un 31 % de la bolsa global), la deduplicación de lectura decidía cuál
+        sobrevivía, y como las extracciones de esas copias diferían entre sí, esa
+        elección determinaba la afinidad del candidato.
+
+        Con un identificador derivado del correo, volver a postularse actualiza
+        el registro en lugar de duplicarlo. La separación por vacante no se
+        pierde: cada silo es una colección distinta, así que la misma persona
+        conserva un registro por cada vacante a la que se postula, más el suyo en
+        la bolsa global.
+
+        Si no hay correo utilizable se recurre al nombre, y en última instancia a
+        un identificador aleatorio: es preferible un duplicado a perder una
+        postulación bajo una clave compartida.
+        """
+        import hashlib
         import uuid
+
+        semilla = primer_dato_valido(correo).lower()
+        if not semilla:
+            semilla = primer_dato_valido(nombre).lower()
+        if not semilla:
+            return f"CANDIDATO_{uuid.uuid4()}"
+
+        digest = hashlib.sha1(semilla.encode("utf-8")).hexdigest()[:16]
+        return f"CANDIDATO_{digest}"
+
+    def store_candidate(self, candidate_data: CandidateStructure, pdf_path: str, formulario: dict, candidate_id: str = None) -> str:
+        """Almacena e indexa el perfil vectorial del candidato asociando metadatos estructurados y su ruta lógica de archivo.
+
+        La precedencia es formulario > extracción, pero se resuelve con
+        `primer_dato_valido` y no con `or`: un centinela como "0000" es
+        *truthy* y con `or` descartaria el dato real extraido del documento.
+        """
         try:
-            candidate_id = f"CANDIDATO_{uuid.uuid4()}"
+            nombre_final_previo = primer_dato_valido(
+                formulario.get("nombre"), candidate_data.nombre_completo
+            )
+            candidate_id = candidate_id or self.identificador_candidato(
+                primer_dato_valido(formulario.get("correo"), candidate_data.correo_electronico),
+                nombre_final_previo
+            )
+
+            nombre_final = primer_dato_valido(
+                formulario.get("nombre"), candidate_data.nombre_completo, default="Nombre no disponible"
+            )
+            correo_final = primer_dato_valido(
+                formulario.get("correo"), candidate_data.correo_electronico
+            )
+            telefono_final = primer_dato_valido(
+                formulario.get("telefono"), candidate_data.telefono_movil
+            )
             # Convertimos el historial laboral en texto plano para que el modelo lo "lea"
             # 1. ENRIQUECIMIENTO DEL VECTOR (Aprovechando la memoria de Nomic de forma segura)
             historial_str = ""
@@ -73,7 +130,7 @@ class CVVectorStoreManager:
                     historial_str += f"- {cargo} en {empresa}{duracion_txt}: {responsabilidades}\n"
 
             document_text = (
-                f"Candidato: {formulario.get('nombre') or candidate_data.nombre_completo}\n"
+                f"Candidato: {nombre_final}\n"
                 f"Nivel Académico: {getattr(candidate_data, 'nivel_academico_maximo', 'N/A')}\n"
                 f"Años de Experiencia Total: {getattr(candidate_data, 'anios_experiencia_total', 0)}\n"
                 f"Perfil Profesional: {candidate_data.perfil_profesional}\n"
@@ -85,9 +142,9 @@ class CVVectorStoreManager:
             # 2. ENRIQUECIMIENTO DE METADATOS (Asegurando que ChromaDB pueda filtrar)
             metadata = {
                 "tipo_registro": "candidato",
-                "nombre_completo": str(formulario.get("nombre") or candidate_data.nombre_completo),
-                "correo_electronico": str(formulario.get("correo") or candidate_data.correo_electronico),
-                "telefono_movil": str(formulario.get("telefono") or candidate_data.telefono_movil),
+                "nombre_completo": nombre_final,
+                "correo_electronico": correo_final,
+                "telefono_movil": telefono_final,
                 # Estas tres llaves son CRÍTICAS para que funcione nuestro Prompt Engineering
                 "nivel_academico_maximo": str(getattr(candidate_data, 'nivel_academico_maximo', '')),
                 "perfil_profesional": str(candidate_data.perfil_profesional),
@@ -95,6 +152,8 @@ class CVVectorStoreManager:
                 "hard_skills": ", ".join(candidate_data.hard_skills),
                 "soft_skills": ", ".join(candidate_data.soft_skills),
                 "pdf_file_path": str(pdf_path),
+                "origen": str(formulario.get("origen", "No especificado")),
+                "fecha_actualizacion": datetime.now().isoformat(timespec="seconds"),
                 "raw_json": candidate_data.model_dump_json()
             }
             

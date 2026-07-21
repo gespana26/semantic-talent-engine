@@ -5,42 +5,11 @@ import json
 import threading
 from config import settings
 from config.settings import clean_collection_name
-from core.query_translator import QueryTranslator  
+from core.data_hygiene import email_valido, telefono_valido
+from core.query_translator import QueryTranslator
 from core.search_engine import CVSearchEngine
-from core.email_service import enviar_alerta_talento
-
-# =====================================================================
-# FUNCIÓN FANTASMA (SEGUNDO PLANO) PARA ALERTAS DE AFINIDAD
-# =====================================================================
-def evaluar_y_notificar_background(silo_destino, datos_extraidos):
-    """Ejecuta un auto-match silencioso. Si el candidato es Top y >= 85%, alerta al reclutador."""
-    try:
-        if not silo_destino:
-            return 
-            
-        coleccion_target = clean_collection_name(silo_destino)
-        buscador = CVSearchEngine(collection_name=coleccion_target)
-        texto_vacante = buscador.obtener_perfil_vacante()
-        
-        if not texto_vacante:
-            return
-            
-        candidatos_top = buscador.search_candidates(query_text=texto_vacante, limit=10)
-        
-        correo_nuevo = str(datos_extraidos.get('correo_electronico', '')).lower().strip()
-        nombre_nuevo = datos_extraidos.get('nombre_completo', 'Candidato Destacado')
-        extracto = datos_extraidos.get('perfil_profesional', 'Extracto no disponible')[:250] + "..."
-        
-        for cand in candidatos_top:
-            if cand.get('correo', '').lower().strip() == correo_nuevo:
-                afinidad = cand.get('porcentaje_afinidad', 0)
-                if afinidad >= 85.0:
-                    enviar_alerta_talento(nombre_nuevo, silo_destino, afinidad, extracto)
-                break 
-                
-    except Exception:
-        pass # Silencioso en la consola para no interrumpir la experiencia del usuario
-
+from core.auto_match import evaluar_y_notificar
+from core.vacancy_catalog import obtener_vacantes_publicas
 
 class RECRUITMENTConsoleApp:
     """Controlador de la interfaz de usuario que orquesta el flujo visual de la consola CLI."""
@@ -68,25 +37,45 @@ class RECRUITMENTConsoleApp:
     def menu_registrar_vacante(self):
         """Gestiona el flujo de captura multilinea para la creacion o edicion de ofertas de empleo."""
         print("\n--- PASARELA CORPORATIVA: REGISTRO RECRUITMENT INTERFACE ---")
-        print("Consigne los parametros de perfilacion corporativa en bloque de texto continuo.")
-        print("(Pegue el texto libremente y escriba la palabra 'FIN' en una linea nueva para procesar):")
-        
-        lineas = []
-        while True:
-            linea = input().strip()
-            if linea.upper() == "FIN":
-                break
-            lineas.append(linea)
-            
-        prompt_vacante = "\n".join(lineas).strip()
-        
-        if not prompt_vacante:
-            print("[ALERTA] Entrada vacia. Cancelando operacion.")
-            return
+        print("Puede registrar la vacante desde un PDF o pegando su texto.")
+
+        raw_path = input("Ruta del PDF de la vacante (deje vacío para pegar el texto): ").strip().strip("'\"")
+
+        pdf_path = None
+        prompt_vacante = None
+
+        if raw_path:
+            for char_oculto in ["‪", "‬", "‎", "‏"]:
+                raw_path = raw_path.replace(char_oculto, "")
+            candidato_path = os.path.normpath(raw_path)
+            if not os.path.exists(candidato_path) and os.path.exists(candidato_path + ".pdf"):
+                candidato_path = candidato_path + ".pdf"
+            if not os.path.exists(candidato_path):
+                print(f"[ALERTA] No se encontro el archivo: '{candidato_path}'. Cancelando operacion.")
+                return
+            pdf_path = candidato_path
+        else:
+            print("Consigne los parametros de perfilacion corporativa en bloque de texto continuo.")
+            print("(Pegue el texto libremente y escriba la palabra 'FIN' en una linea nueva para procesar):")
+
+            lineas = []
+            while True:
+                linea = input().strip()
+                if linea.upper() == "FIN":
+                    break
+                lineas.append(linea)
+
+            prompt_vacante = "\n".join(lineas).strip()
+
+            if not prompt_vacante:
+                print("[ALERTA] Entrada vacia. Cancelando operacion.")
+                return
 
         print("\n[OPERACION - RUNTIME] Decodificando bloque linguistico y estructurando indices...")
         try:
-            resultado = self.orquestador_vacantes.process_and_register_vacancy(raw_text=prompt_vacante)
+            resultado = self.orquestador_vacantes.process_and_register_vacancy(
+                raw_text=prompt_vacante, pdf_path=pdf_path
+            )
             
             # --- NUEVA SECCIÓN DE VISIBILIDAD DE DATOS ---
             print("\n" + "="*60)
@@ -104,6 +93,35 @@ class RECRUITMENTConsoleApp:
         except Exception as e:
             print(f"\n[ERROR CRITICO] Fallo operacional en el pipeline transaccional de la vacante: {e}")
 
+    def _elegir_vacante_destino(self):
+        """Presenta el catálogo de vacantes vigentes y devuelve la colección elegida.
+
+        La CLI comparte con el portal web la misma regla: el destino de una
+        postulación se elige de un conjunto verificado, nunca se teclea. Escribirlo
+        a mano permitía que un error tipográfico creara una colección nueva y sin
+        oferta, en la que la postulación quedaba registrada sin que el auto-match
+        pudiera encontrar criterio con el que compararla.
+
+        Devuelve la cadena vacía para la bolsa global y None si el operador aborta.
+        """
+        vacantes = obtener_vacantes_publicas()
+
+        print("\n  [0] Bolsa Global (sin vacante especifica)")
+        for i, vacante in enumerate(vacantes, start=1):
+            vigencia = f" — quedan {vacante['dias']} dias" if vacante['dias'] is not None else ""
+            print(f"  [{i}] {vacante['titulo']}{vigencia}")
+
+        if not vacantes:
+            print("  (No hay vacantes vigentes publicadas.)")
+
+        seleccion = input("Seleccione el destino de la postulacion [0]: ").strip() or "0"
+        if not seleccion.isdigit() or int(seleccion) > len(vacantes):
+            print("[ALERTA] Seleccion no valida. Operacion cancelada.")
+            return None
+
+        indice = int(seleccion)
+        return "" if indice == 0 else vacantes[indice - 1]["coleccion"]
+
     def menu_postulacion_candidato(self):
         """Flujo de captura para el portal de postulacion del candidato (Formulario descriptivo mas CV)."""
         print("\n--- PASARELA CORPORATIVA: PORTAL DE CAPTACION TALENTO ---")
@@ -111,8 +129,12 @@ class RECRUITMENTConsoleApp:
         correo = input("Direccion de Email de contacto: ").strip()
         telefono = input("Numero telefonico movil: ").strip()
         perfil_declarado = input("Extracto o declaracion profesional sumaria: ").strip()
-        cargo_objetivo = input("Identificacion de nomenclatura del cargo destino (Deje vacío para Global): ").strip()
-        
+
+        cargo_objetivo = self._elegir_vacante_destino()
+        if cargo_objetivo is None:
+            return
+
+
         raw_path = input("Ruta fisica local indexada al recurso PDF del CV: ").strip().strip("'\"")
 
         for char_oculto in ["\u202a", "\u202c", "\u200e", "\u200f"]:
@@ -131,10 +153,22 @@ class RECRUITMENTConsoleApp:
                 pdf_path = os.path.abspath(nombre_base + ".pdf")
 
         # Verificacion final post-curacion (cargo_objetivo ahora es opcional en la validación)
+        # La CLI aplica el mismo contrato de identidad que el portal web: los
+        # validadores son compartidos, de modo que ninguna ruta de ingesta puede
+        # persistir un candidato sin canal de contacto utilizable.
         if not (nombre and correo and telefono and pdf_path):
             print("[ALERTA] Validacion de campos fallida (Nombre, Correo, Teléfono y CV son obligatorios).")
             return
-            
+
+        if not email_valido(correo):
+            print("[ALERTA] El correo electronico no tiene un formato valido.")
+            return
+
+        if not telefono_valido(telefono):
+            print("[ALERTA] El numero de contacto no es valido (entre 7 y 15 digitos).")
+            return
+
+
         if not os.path.exists(pdf_path):
             print(f"[ALERTA] El archivo no fue encontrado en el sistema de archivos.")
             print(f"  -> Python busco de forma literal: '{pdf_path}'")
@@ -151,7 +185,7 @@ class RECRUITMENTConsoleApp:
             # 🚀 AQUÍ SE LANZA EL HILO EN SEGUNDO PLANO PARA LA CONSOLA CLI
             if cargo_objetivo.strip():
                 hilo_alerta = threading.Thread(
-                    target=evaluar_y_notificar_background,
+                    target=evaluar_y_notificar,
                     args=(cargo_objetivo, res.get("datos_extraidos", {}))
                 )
                 hilo_alerta.start()

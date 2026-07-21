@@ -79,7 +79,13 @@ class QueryTranslator:
                 {"role": "system", "content": self.system_prompt},
                 {"role": "user", "content": f"Compile the following block: '{prompt_reclutador}'"}
             ],
-            response_format={"type": "json_object"}  # Evita la restriccion de additionalProperties
+            response_format={"type": "json_object"},  # Evita la restriccion de additionalProperties
+            # Este componente compila logica booleana de filtros: la misma
+            # consulta debe producir el mismo filtro. Sin fijarlo corria a
+            # temperature 1.0, lo que contradecia la promesa de determinismo del
+            # pipeline en su punto mas sensible.
+            temperature=0.0,
+            seed=settings.RANDOM_SEED
         )
         raw_content = response.choices[0].message.content.strip()
         return ChromaQueryStructure.model_validate_json(raw_content)
@@ -92,7 +98,8 @@ class QueryTranslator:
                 {"role": "system", "content": self.system_prompt},
                 {"role": "user", "content": f"Compile the following block: '{prompt_reclutador}'"}
             ],
-            format="json"
+            format="json",
+            options={"temperature": 0.0, "seed": settings.RANDOM_SEED}
         )
         raw_content = response["message"]["content"].strip()
         return ChromaQueryStructure.model_validate_json(raw_content)

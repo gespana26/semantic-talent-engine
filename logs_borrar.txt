@@ -1,0 +1,62 @@
+==================================================================================
+1. REGISTROS FRENTE A IDENTIDADES
+==================================================================================
+  colección                     registros  identidades  duplicación  sin correo
+  ------------------------------------------------------------------------------
+  talento-global-empresa               13            9        1.44x           0  <- bolsa global
+  analista-de-datos                     1            1        1.00x           0
+  data-analyst                          0            0        0.00x           0
+  data-science                          0            0        0.00x           0
+  desarrollador-senior                  0            0        0.00x           0
+  programador                           0            0        0.00x           0
+  project-manager                      12            8        1.50x           0
+
+==================================================================================
+2. CONSUMO DE LA VENTANA DE RECUPERACIÓN (bolsa global)
+==================================================================================
+  Registros redundantes: 4 de 13 (31 %)
+  De cada 50 vecinos recuperados, unos 15 se gastan en duplicados.
+
+  identidad                               registros
+  --------------------------------------------------
+  luzmery_91@hotmail.com                          4
+  vpuentes14@hotmail.com                          2
+
+==================================================================================
+3. ¿DECIDE EL DEDUP LA NOTA DEL CANDIDATO?
+==================================================================================
+  Si las extracciones de una misma persona difieren, el registro que
+  sobrevive al dedup determina su afinidad.
+
+  [project-manager]
+    vpuentes14@hotmail.com
+       hard=4   soft=4   historial=4   educación=3   años=4   nivel='Especialista en Gerencia de '
+       hard=5   soft=4   historial=4   educación=3   años=4   nivel='Especialista en Gerencia de '
+    luzmery_91@hotmail.com
+       hard=3   soft=3   historial=5   educación=4   años=15  nivel='Mestría en Comercio Internac'
+       hard=3   soft=4   historial=5   educación=4   años=14  nivel='Mestría Comercio Internacion'
+       hard=4   soft=4   historial=5   educación=4   años=14  nivel='Mestría Comercio Internacion'
+       hard=4   soft=4   historial=5   educación=4   años=14  nivel='Mestría en Comercio Internac'
+
+  [talento-global-empresa]
+    vpuentes14@hotmail.com
+       hard=4   soft=4   historial=4   educación=3   años=4   nivel='Especialista en Gerencia de '
+       hard=5   soft=4   historial=4   educación=3   años=4   nivel='Especialista en Gerencia de '
+    luzmery_91@hotmail.com
+       hard=3   soft=3   historial=5   educación=4   años=15  nivel='Mestría en Comercio Internac'
+       hard=3   soft=4   historial=5   educación=4   años=14  nivel='Mestría Comercio Internacion'
+       hard=4   soft=4   historial=5   educación=4   años=14  nivel='Mestría Comercio Internacion'
+       hard=4   soft=4   historial=5   educación=4   años=14  nivel='Mestría en Comercio Internac'
+
+  ⚠️  Hay personas cuyas copias difieren en contenido extraído. El registro
+      conservado cambia la cobertura de requisitos y, por tanto, la afinidad.
+
+==================================================================================
+VEREDICTO
+==================================================================================
+  · Punto ciego 11 ACTIVO. Conviene el identificador determinista por correo
+    en la bolsa global antes de la prueba final de casos de uso.
+  · Punto ciego 7 sin registros afectados: todos tienen correo.
+
+  Recordatorio de orden: corregir el código ANTES de limpiar la base. Vaciarla
+  y repetir los casos de uso con el código actual reproduce el mismo patrón.

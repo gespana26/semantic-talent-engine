@@ -80,48 +80,76 @@ class CandidateOrchestrator:
         self.ai_provider = ai_provider
         self.extractor = CVImageExtractor()
 
-    def process_and_register_candidate(self, pdf_path: str, cargo_objetivo: str = "", datos_formulario: dict = None) -> dict:
-        """Ejecuta la ruta de ingesta de alta densidad copiando el archivo al storage e indexando mediante arquitectura de Doble Índice."""
-        
-        # BLINDAJE: Si la web no envía datos del formulario, creamos un diccionario vacío
-        if datos_formulario is None:
-            datos_formulario = {}
-            
+    def extract_candidate(self, pdf_path: str) -> dict:
+        """Extrae el perfil sin persistirlo, para que el candidato pueda confirmarlo antes de indexarse.
+
+        Separar la extracción del registro es lo que habilita el paso de
+        confirmación del portal web: una clave de identidad (el correo) no
+        puede depender de una extracción probabilística sin revisión humana.
+        El nombre del archivo se deriva de un identificador único, nunca de un
+        dato de contacto, para evitar colisiones al copiar al storage.
+        """
         image_paths = []
         try:
-            # 1. Almacenamiento Desacoplado de Objetos (Persistencia física de archivos de respaldo)
             os.makedirs(settings.LOCAL_STORAGE_CV_PATH, exist_ok=True)
-            
-            # BLINDAJE: Si no hay teléfono, usamos "0000" para que el archivo no se llame "CV_None_..."
-            telefono = datos_formulario.get('telefono', '0000')
-            nombre_archivo_final = f"CV_{telefono}_{os.path.basename(pdf_path)}"
+
+            # El identificador de fichero es independiente de los datos extraídos:
+            # dos candidatos que suban "CV.pdf" no pueden sobrescribirse entre sí.
+            nombre_base = os.path.basename(pdf_path).replace(" ", "_")
+            nombre_archivo_final = f"CV_{uuid.uuid4().hex[:12]}_{nombre_base}"
             ruta_persistente_pdf = os.path.join(settings.LOCAL_STORAGE_CV_PATH, nombre_archivo_final)
             shutil.copy(pdf_path, ruta_persistente_pdf)
 
-            # 2. Pipeline Secuencial de Extracción Multimodal
             image_paths = self.extractor.pdf_to_images(ruta_persistente_pdf)
             candidate_data_pydantic = self.ai_provider.parse_cv_images_to_json(image_paths)
 
-            # --- ARQUITECTURA CONCURRENTE DE DOBLE INDEXACIÓN (Dual-Indexing) ---
-            id_en_vacante = None
-            
-            # Índice Destino A: Pipeline cerrado (Solo si el candidato especificó un cargo)
-            cargo_limpio = cargo_objetivo.strip() if cargo_objetivo else ""
-            if cargo_limpio and cargo_limpio.lower() != "talento-global-empresa":
-                db_vacante = CVVectorStoreManager(nombre_cargo=cargo_limpio)
-                id_en_vacante = db_vacante.store_candidate(candidate_data_pydantic, ruta_persistente_pdf, datos_formulario)
-
-            # Índice Destino B: Repositorio consolidado histórico global corporativo
-            db_global = CVVectorStoreManager(nombre_cargo="talento-global-empresa")
-            id_en_global = db_global.store_candidate(candidate_data_pydantic, ruta_persistente_pdf, datos_formulario)
-
             return {
                 "status": "success",
-                "id_vacante_silo": id_en_vacante,
-                "id_bolsa_global": id_en_global,
+                "candidate_data": candidate_data_pydantic,
                 "ruta_pdf_fisico": ruta_persistente_pdf,
-                "datos_extraidos": candidate_data_pydantic.model_dump() 
+                "datos_extraidos": candidate_data_pydantic.model_dump()
             }
         finally:
             if image_paths:
                 self.extractor.clear_temp_images(image_paths)
+
+    def register_candidate(self, candidate_data, ruta_persistente_pdf: str, cargo_objetivo: str = "", datos_formulario: dict = None) -> dict:
+        """Indexa un perfil ya extraído (y confirmado) mediante la arquitectura de Doble Índice."""
+        if datos_formulario is None:
+            datos_formulario = {}
+
+        # --- ARQUITECTURA CONCURRENTE DE DOBLE INDEXACIÓN (Dual-Indexing) ---
+        id_en_vacante = None
+
+        # Índice Destino A: Pipeline cerrado (Solo si el candidato especificó un cargo)
+        cargo_limpio = cargo_objetivo.strip() if cargo_objetivo else ""
+        if cargo_limpio and cargo_limpio.lower() != "talento-global-empresa":
+            db_vacante = CVVectorStoreManager(nombre_cargo=cargo_limpio)
+            id_en_vacante = db_vacante.store_candidate(candidate_data, ruta_persistente_pdf, datos_formulario)
+
+        # Índice Destino B: Repositorio consolidado histórico global corporativo
+        db_global = CVVectorStoreManager(nombre_cargo="talento-global-empresa")
+        id_en_global = db_global.store_candidate(candidate_data, ruta_persistente_pdf, datos_formulario)
+
+        return {
+            "status": "success",
+            "id_vacante_silo": id_en_vacante,
+            "id_bolsa_global": id_en_global,
+            "ruta_pdf_fisico": ruta_persistente_pdf,
+            "datos_extraidos": candidate_data.model_dump()
+        }
+
+    def process_and_register_candidate(self, pdf_path: str, cargo_objetivo: str = "", datos_formulario: dict = None) -> dict:
+        """Ejecuta la ruta de ingesta completa en un solo paso.
+
+        Es la ruta de la CLI, donde el operador ya captura y valida los datos de
+        identidad antes de invocar el pipeline, de modo que no necesita un paso
+        de confirmación posterior.
+        """
+        extraccion = self.extract_candidate(pdf_path)
+        return self.register_candidate(
+            candidate_data=extraccion["candidate_data"],
+            ruta_persistente_pdf=extraccion["ruta_pdf_fisico"],
+            cargo_objetivo=cargo_objetivo,
+            datos_formulario=datos_formulario
+        )

@@ -7,7 +7,7 @@ class CVImageExtractor:
     """Componente encargado de la rasterización y limpieza de documentos PDF."""
 
     def _make_multiple_of_28(self, value: int) -> int:
-        """Calcula el múltiplo de 28 más cercano para evitar el bug de tensores de Qwen-VL en Ollama."""
+        """Calcula el mayor múltiplo de 28 que no excede el valor, para evitar el bug de tensores de Qwen-VL en Ollama."""
         return (value // 28) * 28
 
     def pdf_to_images(self, pdf_path: str) -> list:

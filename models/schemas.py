@@ -15,24 +15,38 @@ class VacancyStructure(BaseModel):
     dias_vigencia: int = Field(default=30, description="Duracion del ciclo de vida en dias para la publicacion activa de la vacante.")
 
 class ExperienciaLaboral(BaseModel):
-    empresa: str
-    cargo: str
-    duracion_anios: float = Field(description="Duracion en la empresa en años (ej. 2.5)")
+    empresa: str = Field(default="", description="Razon social de la organizacion.")
+    cargo: str = Field(default="", description="Titulo del rol desempenado.")
+    duracion_anios: float = Field(default=0.0, description="Duracion en la empresa en años (ej. 2.5)")
 
 class CandidateStructure(BaseModel):
-    nombre_completo: str
-    correo_electronico: str
-    telefono_movil: str
+    """Contrato de la *extraccion*, no de la *identidad*.
+
+    Todos los campos declaran un valor por defecto de forma deliberada. El
+    esquema estricto que el SDK de OpenAI deriva de esta clase sigue exigiendo
+    la clave completa al modelo (`required` incluye todas las propiedades), de
+    modo que la ruta de Structured Outputs no se debilita. Los defaults
+    protegen la ruta local de Ollama, donde el JSON se valida con
+    `model_validate_json`: la omision de un campo de contenido degrada ese
+    campo en lugar de tumbar la postulacion entera.
+
+    La obligatoriedad de los datos de identidad (nombre, correo) no se resuelve
+    aqui sino en el paso de confirmacion del formulario, donde el dato es
+    verificable y no probabilistico.
+    """
+    # --- Nivel 1: identidad. Se confirman en el formulario, no se imponen al extractor. ---
+    nombre_completo: str = Field(default="", description="Nombre y apellidos del candidato. Cadena vacia si no aparece en el documento.")
+    correo_electronico: str = Field(default="", description="Correo de contacto. Cadena vacia si no aparece en el documento; nunca inferido.")
+    telefono_movil: str = Field(default="", description="Telefono de contacto. Cadena vacia si no aparece en el documento; nunca inferido.")
     ubicacion: str = Field(default="No especificada")
-    # --- CAMBIO CRÍTICO: Obligamos a extraer el título exacto ---
-    nivel_academico_maximo: str = Field(description="Nombre exacto del titulo obtenido. Ej: Ingeniero Industrial, Administrador de Empresas, Industrial Engineer")
-    # -----------------------------------------------------------
-    educacion_detalle: List[str] = Field(description="Lista de titulos o cursos formales")
-    anios_experiencia_total: int = Field(description="Suma total de años de experiencia profesional (numero entero)")
-    historial_laboral: List[ExperienciaLaboral]
-    perfil_profesional: str
-    hard_skills: List[str]
-    soft_skills: List[str]
+    # --- Nivel 2: contenido. Degradan con elegancia, nunca bloquean. ---
+    nivel_academico_maximo: str = Field(default="", description="Nombre exacto del titulo obtenido. Ej: Ingeniero Industrial, Administrador de Empresas, Industrial Engineer")
+    educacion_detalle: List[str] = Field(default_factory=list, description="Lista de titulos o cursos formales")
+    anios_experiencia_total: int = Field(default=0, description="Suma total de años de experiencia profesional (numero entero)")
+    historial_laboral: List[ExperienciaLaboral] = Field(default_factory=list)
+    perfil_profesional: str = Field(default="")
+    hard_skills: List[str] = Field(default_factory=list)
+    soft_skills: List[str] = Field(default_factory=list)
 
 class ChromaQueryStructure(BaseModel):
     """Contrato de datos que representa una estructura de consulta compilada y optimizada para busquedas hibridas vector/metadatos."""

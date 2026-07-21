@@ -1,3 +1,4 @@
+import os
 import streamlit as st
 from config import settings
 from config.settings import clean_collection_name
@@ -76,6 +77,45 @@ def render_dashboard_reclutador():
     
     coleccion_target = clean_collection_name(silo_objetivo) if silo_objetivo.strip() else "talento-global-empresa"
     
+    # 📄 Registro de vacante desde un PDF (alternativa al comando de texto /crear vacante:)
+    with st.expander("📄 Registrar vacante desde un PDF"):
+        with st.form("form_vacante_pdf", clear_on_submit=True):
+            archivo_vacante = st.file_uploader("Adjunta el PDF de la vacante", type=["pdf"])
+            submit_vacante_pdf = st.form_submit_button("Procesar vacante", type="primary")
+
+        if submit_vacante_pdf:
+            if not archivo_vacante:
+                st.warning("⚠️ Adjunta un archivo PDF para continuar.")
+            else:
+                with st.spinner("🤖 Leyendo y estructurando la vacante..."):
+                    ruta_temp_vacante = None
+                    try:
+                        os.makedirs(settings.LOCAL_STORAGE_CV_PATH, exist_ok=True)
+                        nombre_seguro = "VACANTE_" + archivo_vacante.name.replace(" ", "_")
+                        ruta_temp_vacante = os.path.join(settings.LOCAL_STORAGE_CV_PATH, nombre_seguro)
+                        with open(ruta_temp_vacante, "wb") as f:
+                            f.write(archivo_vacante.getbuffer())
+
+                        tipo_proveedor = settings.AI_PROVIDER_TYPE.lower()
+                        proveedor_ia = OpenAIProvider() if tipo_proveedor == "openai" else LocalOllamaProvider()
+                        orquestador = VacancyOrchestrator(ai_provider=proveedor_ia)
+                        resultado = orquestador.process_and_register_vacancy(pdf_path=ruta_temp_vacante)
+
+                        if resultado.get("status") == "success":
+                            st.success(f"✅ ¡Vacante '{resultado.get('coleccion')}' creada exitosamente!")
+                            with st.expander("👀 Ver comprensión de la IA (JSON)", expanded=True):
+                                st.json(resultado.get("datos_extraidos", {}))
+                        else:
+                            st.error("Hubo un error al crear la vacante.")
+                    except Exception as e:
+                        st.error(f"Fallo crítico al procesar la vacante: {e}")
+                    finally:
+                        if ruta_temp_vacante and os.path.exists(ruta_temp_vacante):
+                            try:
+                                os.remove(ruta_temp_vacante)
+                            except Exception:
+                                pass
+
     st.caption("💡 **Comandos rápidos:** `/crear vacante:` | `/match:` | `/nombre:`")
     prompt_busqueda = st.chat_input("Ej: /crear vacante:, /match:, /nombre: Luis, o búsqueda natural...")
     
