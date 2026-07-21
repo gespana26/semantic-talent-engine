@@ -120,9 +120,38 @@ def render_dashboard_reclutador():
     prompt_busqueda = st.chat_input("Ej: /crear vacante:, /match:, /nombre: Luis, o búsqueda natural...")
     
     if prompt_busqueda:
+        st.session_state.vacante_creada = None  # Limpiar resultado anterior al escribir nuevo prompt
         st.session_state.resultados_busqueda = [] 
         st.session_state.telemetria = None
-        
+
+        comando_original = prompt_busqueda.strip()
+        comando = comando_original.lower()
+
+        # --- CASO ESPECIAL: /crear vacante: se procesa fuera del spinner principal ---
+        # Así el spinner asociado "Procesando consulta..." no interfiere con st.stop()
+        if comando.startswith("/crear vacante:"):
+            texto_vacante = comando_original.replace("/crear vacante:", "", 1).strip()
+            
+            if not texto_vacante:
+                st.warning("⚠️ Debes pegar el texto de la vacante después de los dos puntos.")
+                st.stop()
+                
+            with st.spinner("Creando vacante y configurando silo..."):
+                tipo_proveedor = settings.AI_PROVIDER_TYPE.lower()
+                proveedor_ia = OpenAIProvider() if tipo_proveedor == "openai" else LocalOllamaProvider()
+                orquestador = VacancyOrchestrator(ai_provider=proveedor_ia)
+                resultado = orquestador.process_and_register_vacancy(raw_text=texto_vacante)
+            
+            if resultado.get("status") == "success":
+                # Guardar en session_state para mostrar DESPUÉS del rerun
+                # así el sidebar se actualiza sin perder el resultado en el dashboard
+                st.session_state.vacante_creada = resultado
+                st.rerun()
+            else:
+                st.error("Hubo un error al crear la vacante.")
+                st.stop()
+
+        # --- RESTO DE COMANDOS: necesitan el motor de búsqueda ---
         try:
             buscador = CVSearchEngine(collection_name=coleccion_target)
         except Exception as e:
@@ -135,32 +164,7 @@ def render_dashboard_reclutador():
         
         with st.spinner("Procesando consulta..."):
             try:
-                comando_original = prompt_busqueda.strip()
-                comando = comando_original.lower()
-                
-                if comando.startswith("/crear vacante:"):
-                    texto_vacante = comando_original.replace("/crear vacante:", "", 1).strip()
-                    
-                    if not texto_vacante:
-                        st.warning("⚠️ Debes pegar el texto de la vacante después de los dos puntos.")
-                        st.stop()
-                        
-                    tipo_proveedor = settings.AI_PROVIDER_TYPE.lower()
-                    proveedor_ia = OpenAIProvider() if tipo_proveedor == "openai" else LocalOllamaProvider()
-                        
-                    orquestador = VacancyOrchestrator(ai_provider=proveedor_ia)
-                    resultado = orquestador.process_and_register_vacancy(raw_text=texto_vacante)
-                    
-                    if resultado.get("status") == "success":
-                        st.success(f"✅ ¡Vacante '{resultado.get('coleccion')}' creada exitosamente!")
-                        with st.expander("👀 Ver comprensión de la IA (JSON)"):
-                            st.json(resultado.get("datos_extraidos", {}))
-                        st.info("🔄 Operación completada. Puedes seguir buscando.")
-                    else:
-                        st.error("Hubo un error al crear la vacante.")
-                    st.stop()
-
-                elif comando.startswith("/nombre:"):
+                if comando.startswith("/nombre:"):
                     termino_nominal = comando_original.replace("/nombre:", "", 1).strip()
                     
                     if not termino_nominal:
@@ -174,7 +178,7 @@ def render_dashboard_reclutador():
                             "correo": c.get('correo_electronico'), 
                             "porcentaje_afinidad": "Léxico", 
                             "pdf_origen": c.get('pdf_file_path'),
-                            "perfil_completo_json": c
+                            "perfil_completo_json": json.loads(c.get('raw_json', '{}')) if c.get('raw_json') else c
                         }
                         for c in candidatos if c.get('nombre_completo')
                     ]
@@ -214,6 +218,14 @@ def render_dashboard_reclutador():
                     
             except Exception as e:
                 st.error(f"Error en el motor de búsqueda: {e}")
+
+    # Mostrar resultado de creación de vacante (persiste tras st.rerun())
+    if st.session_state.get("vacante_creada"):
+        resultado = st.session_state.vacante_creada
+        st.success(f"✅ ¡Vacante '{resultado.get('coleccion')}' creada exitosamente!")
+        with st.expander("👀 Ver comprensión de la IA (JSON)", expanded=True):
+            st.json(resultado.get("datos_extraidos", {}))
+        st.info("🔄 Sidebar actualizado. Puedes seguir operando en el dashboard.")
 
     # Renderizado de Resultados
     if st.session_state.resultados_busqueda:
