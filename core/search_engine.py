@@ -1,12 +1,15 @@
 """Módulo encargado de la recuperación semántica de información, filtrado estructural de metadatos y cálculo de índices de afinidad."""
 
 import json
+
 import chromadb
 from chromadb.utils import embedding_functions
+
 from config import settings
 from core import baseline
 from core.affinity import calcular_afinidad, explicar
 from core.data_hygiene import normalizar_texto, primer_dato_valido
+
 
 class CVSearchEngine:
     """Ejecuta consultas de similitud de alta velocidad en espacios vectoriales aplicando Post-Retrieval Filtering en Python."""
@@ -230,6 +233,21 @@ class CVSearchEngine:
         similitud normalizada: el coseno menos la línea base de esa consulta,
         reescalado. Sigue sin ser la escala antigua —cuyo suelo era el 84 %—,
         pero es una señal más débil, y la interfaz lo distingue.
+
+        Args:
+            query_text: Texto de la consulta o del criterio de la vacante que se
+                vectoriza para recuperar candidatos.
+            limit: Número máximo de resultados a devolver ya re-puntuados.
+            where_filter: Filtro léxico de condiciones obligatorias o
+                excluyentes; ``None`` si no se declaró ninguna.
+            vacante: Campos estructurados de la vacante que habilitan la afinidad
+                compuesta; ``None`` en una búsqueda libre, donde solo hay
+                similitud.
+
+        Returns:
+            Lista de candidatos ordenada por porcentaje de afinidad descendente,
+            cada uno con su desglose y su tipo de puntuación (``afinidad`` o
+            ``similitud``).
         """
         try:
             # El silo es autocontenido: la vacante comparte colección con sus candidatos.

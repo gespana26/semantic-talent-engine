@@ -25,7 +25,6 @@ from core import search_engine as motor
 from core.requirements_coverage import normalizar
 from core.search_engine import CVSearchEngine
 
-
 # ---------------------------------------------------------------------------
 # Dobles
 # ---------------------------------------------------------------------------

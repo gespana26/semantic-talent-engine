@@ -1,8 +1,9 @@
 """Modulo para la gestion de la configuracion del sistema, variables de entorno y utilidades de normalizacion."""
 
+import logging
 import os
 import re
-import logging
+
 from dotenv import load_dotenv
 
 # Cargar las variables del archivo .env local

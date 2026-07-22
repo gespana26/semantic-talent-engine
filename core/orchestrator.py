@@ -4,10 +4,13 @@ import os
 import shutil
 import uuid  # Utiliza la biblioteca nativa estándar de Python
 from datetime import datetime, timedelta
+
 import chromadb
-from core.extractor import CVImageExtractor
-from core.database import CVVectorStoreManager
+
 from config import settings
+from core.database import CVVectorStoreManager
+from core.extractor import CVImageExtractor
+
 
 class VacancyOrchestrator:
     """Administra el flujo secuencial para la ingesta, control de umbrales temporales y conciliación semántica de vacantes."""

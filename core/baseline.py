@@ -120,6 +120,7 @@ def cachear_embeddings(funcion_embeddings):
     memoria = {}
 
     def envoltorio(textos):
+        """Devuelve los embeddings de `textos`, calculando solo los no cacheados."""
         pendientes = [t for t in textos if t not in memoria]
         if pendientes:
             # Se conserva el orden y se eliminan duplicados dentro del mismo lote.

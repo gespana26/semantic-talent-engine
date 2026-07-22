@@ -1,7 +1,9 @@
 """Módulo encargado del procesamiento gráfico, rasterización y ciclo de vida de activos de documentos temporales."""
-import fitz  # PyMuPDF
 import os
+
+import fitz  # PyMuPDF
 from PIL import Image
+
 
 class CVImageExtractor:
     """Componente encargado de la rasterización y limpieza de documentos PDF."""

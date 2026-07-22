@@ -1,16 +1,16 @@
 """Capa de abstraccion para gestionar la inferencia y los pipelines de vision computacional contra endpoints LLM locales o en la nube."""
 
-import json
 import base64
 import re
-from openai import OpenAI as _NativeOpenAI
-import ollama
-from config import settings
-from models.schemas import VacancyStructure, CandidateStructure
-from models.interfaces import BaseLLMProvider
-from models.observability import observe, get_langfuse_client, _update_generation
-from core.json_sanitizer import extraer_json
 
+import ollama
+from openai import OpenAI as _NativeOpenAI
+
+from config import settings
+from core.json_sanitizer import extraer_json
+from models.interfaces import BaseLLMProvider
+from models.observability import _update_generation, get_langfuse_client, observe
+from models.schemas import CandidateStructure, VacancyStructure
 
 # Semilla compartida por todas las llamadas de extraccion. Junto con
 # temperature=0 hace que el pipeline sea reproducible: el mismo documento

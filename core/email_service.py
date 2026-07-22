@@ -1,9 +1,11 @@
 """Módulo encargado de despachar notificaciones asíncronas vía SMTP."""
 
 import smtplib
-from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+
 from config import settings
+
 
 def _bloque_requisitos(cobertura: dict, percentil) -> str:
     """Redacta la justificación de la alerta en términos verificables.

@@ -1,15 +1,16 @@
 """Modulo de la capa de presentacion encargado de gestionar la interfaz de linea de comandos (CLI) y sus menus."""
 
-import os
 import json
+import os
 import threading
+
 from config import settings
-from config.settings import clean_collection_name
+from core.auto_match import evaluar_y_notificar
 from core.data_hygiene import email_valido, telefono_valido
 from core.query_translator import QueryTranslator
 from core.search_engine import CVSearchEngine
-from core.auto_match import evaluar_y_notificar
 from core.vacancy_catalog import obtener_vacantes_publicas
+
 
 class RECRUITMENTConsoleApp:
     """Controlador de la interfaz de usuario que orquesta el flujo visual de la consola CLI."""
@@ -170,7 +171,7 @@ class RECRUITMENTConsoleApp:
 
 
         if not os.path.exists(pdf_path):
-            print(f"[ALERTA] El archivo no fue encontrado en el sistema de archivos.")
+            print("[ALERTA] El archivo no fue encontrado en el sistema de archivos.")
             print(f"  -> Python busco de forma literal: '{pdf_path}'")
             return
 
@@ -206,7 +207,8 @@ class RECRUITMENTConsoleApp:
         print("\n--- PASARELA CORPORATIVA: BUSCADOR DE TALENTO GLOBAL ---")
         prompt_busqueda = input("Indique los criterios semanticos avanzados y restricciones duras requeridas:\n> ").strip()
         
-        if not prompt_busqueda: return
+        if not prompt_busqueda:
+            return
 
         print("\n[OPERACION - RUNTIME] Traduciendo requerimientos verbales a arboles booleanos indexables...")
         try:
@@ -226,7 +228,7 @@ class RECRUITMENTConsoleApp:
             )
             
             print("\n" + "="*70)
-            print(f"  REGISTROS DE COINCIDENCIA DE ALTA DENSIDAD (BOLSA GLOBAL DE TALENTO)")
+            print("  REGISTROS DE COINCIDENCIA DE ALTA DENSIDAD (BOLSA GLOBAL DE TALENTO)")
             print("="*70)
             
             if not candidatos:

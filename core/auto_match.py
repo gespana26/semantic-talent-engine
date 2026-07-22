@@ -130,6 +130,17 @@ def evaluar_postulacion(silo_destino: str, datos_candidato: dict) -> dict:
 
     No envía nada: devuelve el veredicto y sus razones, de modo que la decisión
     sea inspeccionable y testeable con independencia del envío del correo.
+
+    Args:
+        silo_destino: Nombre de la vacante a la que se postuló el candidato;
+            vacío para la bolsa global, donde no hay criterio contra el que
+            evaluar.
+        datos_candidato: Perfil extraído del candidato recién indexado.
+
+    Returns:
+        Veredicto con la clave ``alertar`` (bool), el ``motivo`` explicable, la
+        ``afinidad`` reportada, el ``percentil`` en el banco y el ``desglose``
+        del cálculo.
     """
     veredicto = {
         "alertar": False, "motivo": "", "afinidad": None, "percentil": None,

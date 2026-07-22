@@ -6,10 +6,12 @@ Uso:
     python purgar_db.py --auth       # También elimina la DB de usuarios/credenciales
 """
 
-import chromadb
-from config import settings
 import os
 import sys
+
+import chromadb
+
+from config import settings
 
 REMOVE_AUTH = "--auth" in sys.argv
 

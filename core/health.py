@@ -9,7 +9,9 @@ Usage in startup or demo scripts:
         print("Ollama not ready — start it with `ollama serve` and pull models")
 """
 import logging
+
 import requests
+
 from config import settings
 
 logger = logging.getLogger(__name__)

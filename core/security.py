@@ -1,11 +1,11 @@
 """Módulo de autenticación y autorización utilizando SQLite y JSON Web Tokens (JWT)."""
 
+import os
 import sqlite3
+from datetime import datetime, timedelta
+
 import bcrypt
 import jwt
-from datetime import datetime, timedelta
-import os
-from config import settings
 
 # Usaremos una clave secreta para firmar los tokens. Si no existe en el .env, usa una por defecto.
 # Idealmente, añade JWT_SECRET_KEY=tu_clave_super_secreta a tu archivo .env

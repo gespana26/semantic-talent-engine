@@ -1,7 +1,10 @@
-import streamlit as st
-import chromadb
 from datetime import datetime
+
+import chromadb
+import streamlit as st
+
 from config import settings
+
 
 def obtener_resumen_silos():
     """Extrae las colecciones activas y calcula los días restantes de vigencia."""

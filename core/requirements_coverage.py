@@ -28,7 +28,6 @@ El resultado es además explicable: no solo dice cuánto cubre, sino **qué falt
 """
 
 import re
-import unicodedata
 
 from config import settings
 from core.data_hygiene import normalizar_texto
@@ -154,9 +153,19 @@ def evaluar_cobertura(requisitos: list, habilidades_candidato: list,
                       texto_candidato: str = "", funcion_embeddings=None) -> dict:
     """Determina qué requisitos de la vacante cubre el candidato y cuáles no.
 
-    `texto_candidato` puede ser el perfil completo: la vía léxica lo aprovecha
-    para no exigir que la habilidad esté declarada como tal si aparece descrita
-    en la experiencia.
+    Args:
+        requisitos: Habilidades o estudios exigidos por la vacante.
+        habilidades_candidato: Habilidades declaradas en el perfil del candidato.
+        texto_candidato: Perfil completo opcional; la vía léxica lo aprovecha
+            para dar por cubierta una habilidad descrita en la experiencia
+            aunque no aparezca declarada como tal.
+        funcion_embeddings: Cliente de embeddings para la verificación por
+            contraste semántico; si es ``None``, solo se aplica la vía léxica.
+
+    Returns:
+        Diccionario con la proporción cubierta (``ratio``), las listas de
+        requisitos cubiertos y faltantes, y las equivalencias detectadas por
+        contraste.
     """
     requisitos = [r for r in (requisitos or []) if str(r).strip()]
     habilidades = [h for h in (habilidades_candidato or []) if str(h).strip()]

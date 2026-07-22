@@ -1,6 +1,7 @@
 import streamlit as st
-from views.portal import render_portal_candidato
+
 from views.dashboard import render_dashboard_reclutador
+from views.portal import render_portal_candidato
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title="ATS Global Recruitment", page_icon="🎯", layout="wide")

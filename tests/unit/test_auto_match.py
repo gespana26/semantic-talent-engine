@@ -19,9 +19,7 @@ import pytest
 from config import settings
 from core import auto_match
 from core import search_engine as motor
-from tests.unit.test_search_rerank import (
-    POBLACION, VACANTE, ColeccionFalsa, _embeddings_falsos
-)
+from tests.unit.test_search_rerank import POBLACION, VACANTE, ColeccionFalsa, _embeddings_falsos
 
 
 @pytest.fixture

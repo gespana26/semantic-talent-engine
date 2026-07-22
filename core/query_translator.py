@@ -5,6 +5,7 @@ from pydantic import ValidationError
 from config.providers import get_ai_provider
 from models.schemas import ChromaQueryStructure
 
+
 class QueryTranslator:
     """Compilador NLI encargado de transformar requerimientos textuales en logica binaria de consulta estructurada."""
     

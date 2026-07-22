@@ -16,10 +16,9 @@ import math
 
 import pytest
 
+from config import settings
 from core.affinity import calcular_afinidad, explicar, factor_experiencia, factor_profesion
 from core.requirements_coverage import normalizar
-from config import settings
-
 
 # ---------------------------------------------------------------------------
 # Factor de experiencia

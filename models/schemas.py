@@ -1,7 +1,9 @@
 """Capa de validacion de datos que define los contratos inmutables para los pipelines de extraccion de IA mediante Pydantic."""
 
+from typing import List
+
 from pydantic import BaseModel, Field
-from typing import List, Optional
+
 
 class VacancyStructure(BaseModel):
     """Contrato de datos que representa una oferta de empleo corporativa completamente normalizada."""

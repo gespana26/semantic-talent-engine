@@ -49,8 +49,8 @@ def isolated_env(monkeypatch: pytest.MonkeyPatch):
     """
     monkeypatch.setattr(dotenv, "load_dotenv", lambda *a, **k: False)
     import config.settings  # noqa: F401
-    import models.observability  # noqa: F401
     import models.ai_provider  # noqa: F401
+    import models.observability  # noqa: F401
     yield
     # Teardown: clean env and reload so module-level caches are reset.
     monkeypatch.delenv("LANGFUSE_ENABLED", raising=False)
@@ -110,7 +110,7 @@ def mocked_langfuse(monkeypatch: pytest.MonkeyPatch):
 
 def test_disabled_state_all_providers_init_without_errors(monkeypatch, isolated_env) -> None:
     _reload_chain()
-    from models.ai_provider import OpenAIProvider, LocalOllamaProvider
+    from models.ai_provider import LocalOllamaProvider, OpenAIProvider
 
     openai_provider = OpenAIProvider()
     ollama_provider = LocalOllamaProvider()
@@ -122,6 +122,7 @@ def test_disabled_state_all_providers_init_without_errors(monkeypatch, isolated_
 def test_disabled_state_uses_native_openai_sdk(isolated_env) -> None:
     _reload_chain()
     from openai import OpenAI as NativeOpenAI
+
     from models.ai_provider import OpenAIProvider
 
     provider = OpenAIProvider()

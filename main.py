@@ -1,9 +1,9 @@
 """Punto de entrada principal del sistema encargado del bootstraping e inicialización de dependencias."""
 
-from config import settings
 from config.providers import get_ai_provider
-from core.orchestrator import VacancyOrchestrator, CandidateOrchestrator
 from core.cli_console import RECRUITMENTConsoleApp
+from core.orchestrator import CandidateOrchestrator, VacancyOrchestrator
+
 
 def main():
     # 1. Composition root: el unico punto donde se decide el proveedor de IA.

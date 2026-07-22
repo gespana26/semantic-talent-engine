@@ -134,11 +134,16 @@ def main() -> None:
     vectores = ef(todos)
 
     i = 0
-    v_cand = vectores[i:i + len(docs_cand)]; i += len(docs_cand)
-    v_cand_sin = vectores[i:i + len(docs_cand_sin)]; i += len(docs_cand_sin)
-    v_con = vectores[i:i + len(crit_con)]; i += len(crit_con)
-    v_sin = vectores[i:i + len(crit_sin)]; i += len(crit_sin)
-    v_aj = vectores[i:i + len(perf_ajenos)]; i += len(perf_ajenos)
+    v_cand = vectores[i:i + len(docs_cand)]
+    i += len(docs_cand)
+    v_cand_sin = vectores[i:i + len(docs_cand_sin)]
+    i += len(docs_cand_sin)
+    v_con = vectores[i:i + len(crit_con)]
+    i += len(crit_con)
+    v_sin = vectores[i:i + len(crit_sin)]
+    i += len(crit_sin)
+    v_aj = vectores[i:i + len(perf_ajenos)]
+    i += len(perf_ajenos)
     v_aj_sin = vectores[i:i + len(perf_ajenos_sin)]
 
     # =====================================================================
