@@ -91,7 +91,8 @@ class CVVectorStoreManager:
         digest = hashlib.sha1(semilla.encode("utf-8")).hexdigest()[:16]
         return f"CANDIDATO_{digest}"
 
-    def store_candidate(self, candidate_data: CandidateStructure, pdf_path: str, formulario: dict, candidate_id: str = None) -> str:
+    def store_candidate(self, candidate_data: CandidateStructure, pdf_path: str, formulario: dict,
+                        candidate_id: str = None, verificacion: dict = None) -> str:
         """Almacena e indexa el perfil vectorial del candidato con sus metadatos.
 
         La precedencia es formulario > extracción, pero se resuelve con
@@ -174,7 +175,20 @@ class CVVectorStoreManager:
                 "fecha_actualizacion": datetime.now().isoformat(timespec="seconds"),
                 "raw_json": candidate_data.model_dump_json()
             }
-            
+
+            # Veredicto de la verificación contra el documento. Se aplana a
+            # escalares porque ChromaDB no admite metadatos anidados. La marca
+            # `sospechoso` permite al dashboard filtrar o señalar el perfil.
+            if verificacion:
+                metadata["verificacion_canal"] = str(verificacion.get("canal", ""))
+                metadata["verificacion_sospechoso"] = bool(verificacion.get("sospechoso", False))
+                if verificacion.get("ratio") is not None:
+                    metadata["verificacion_ratio"] = float(verificacion["ratio"])
+                no_verificadas = verificacion.get("no_verificadas") or []
+                if no_verificadas:
+                    metadata["verificacion_no_verificadas"] = ", ".join(no_verificadas)
+
+
             self.collection.upsert(
                 documents=[document_text],
                 metadatas=[metadata],

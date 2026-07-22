@@ -1,0 +1,31 @@
+# Configuracion de herramientas de desarrollo del proyecto.
+#
+# El linting se realiza con Ruff, que reune en una sola herramienta las reglas
+# de Pyflakes (errores reales), pycodestyle (PEP 8) e isort (orden de imports).
+# Se ejecuta con:  ruff check .
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+# Directorios que no forman parte del codigo de produccion ni de los tests.
+extend-exclude = [".TFM", "storage", "CV", "__pycache__"]
+
+# El proyecto tiene ~40 modulos escritos con estilo consistente. El linting da
+# fe de esa consistencia sin reescribir el codigo por modas de sintaxis, de modo
+# que se activan las familias que detectan defectos reales y el orden de imports.
+[tool.ruff.lint]
+# E,F  errores de pycodestyle y Pyflakes (imports sin usar, nombres indefinidos).
+# I    ordenacion de imports (isort).
+select = ["E", "F", "I"]
+
+# E501 (longitud de linea) se delega a line-length y no se marca en prosa de
+# docstrings; E402 se tolera en los scripts de medicion, que ajustan sys.path
+# antes de importar el paquete.
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"scripts/*" = ["E402"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["config", "core", "models", "views"]

@@ -40,6 +40,11 @@ def silo(monkeypatch):
             modulo.embedding_functions, "OllamaEmbeddingFunction",
             lambda *_a, **_k: _embeddings_falsos
         )
+
+    # El suelo de afinidad se neutraliza aquí para que estos tests no dependan
+    # del valor del .env del desarrollador; los tests de la regla del suelo
+    # fijan explícitamente el suyo.
+    monkeypatch.setattr(settings, "UMBRAL_AFINIDAD_ALERTA", 0.0)
     return coleccion
 
 
@@ -126,6 +131,43 @@ def test_un_umbral_de_cobertura_mas_estricto_frena_la_alerta(silo, monkeypatch) 
     veredicto = auto_match.evaluar_postulacion("project-manager", _datos(1))
 
     assert veredicto["alertar"] is False
+
+
+def test_un_perfil_sospechoso_suprime_la_alerta_de_talento(silo) -> None:
+    """Regresión del CV con prompt injection: recibió la alerta de «talento
+    excepcional» además de la de revisión manual. Si la verificación marcó
+    sospecha, la cobertura puede estar inflada y la alerta no debe salir."""
+    veredicto = auto_match.evaluar_postulacion(
+        "project-manager", _datos(1), verificacion={"sospechoso": True}
+    )
+
+    assert veredicto["alertar"] is False
+    assert "revisión manual" in veredicto["motivo"]
+
+
+def test_un_perfil_verificado_limpio_no_se_ve_afectado(silo) -> None:
+    veredicto = auto_match.evaluar_postulacion(
+        "project-manager", _datos(1), verificacion={"sospechoso": False}
+    )
+
+    assert veredicto["alertar"] is True
+
+
+def test_el_suelo_de_afinidad_frena_al_candidato_mediocre(silo, monkeypatch) -> None:
+    """Regresión del correo real con 23,44 %: cubrir el umbral de cobertura por
+    lo justo, en un banco pequeño, no convierte a nadie en excepcional."""
+    monkeypatch.setattr(settings, "UMBRAL_AFINIDAD_ALERTA", 99.9)
+    veredicto = auto_match.evaluar_postulacion("project-manager", _datos(1))
+
+    assert veredicto["alertar"] is False
+    assert "umbral de alerta" in veredicto["motivo"]
+
+
+def test_el_suelo_de_afinidad_es_configurable_y_deja_pasar_al_bueno(silo, monkeypatch) -> None:
+    monkeypatch.setattr(settings, "UMBRAL_AFINIDAD_ALERTA", 0.0)
+    veredicto = auto_match.evaluar_postulacion("project-manager", _datos(1))
+
+    assert veredicto["alertar"] is True
 
 
 def test_el_hilo_de_notificacion_nunca_propaga_errores(silo, monkeypatch) -> None:

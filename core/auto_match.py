@@ -125,7 +125,7 @@ def _percentil_en_banco(criterio: str, distancia_candidato: float) -> tuple:
         return None, 0
 
 
-def evaluar_postulacion(silo_destino: str, datos_candidato: dict) -> dict:
+def evaluar_postulacion(silo_destino: str, datos_candidato: dict, verificacion: dict = None) -> dict:
     """Evalúa una postulación recién indexada y decide si merece alertar al reclutador.
 
     No envía nada: devuelve el veredicto y sus razones, de modo que la decisión
@@ -147,6 +147,18 @@ def evaluar_postulacion(silo_destino: str, datos_candidato: dict) -> dict:
         "muestra_banco": 0, "cobertura": None, "desglose": None,
         "titulo_vacante": silo_destino
     }
+
+    # --- Señal 0: veredicto de la verificación contra el documento ---
+    # Un perfil marcado como sospechoso ya disparó el correo de revisión manual.
+    # Enviar además la alerta de talento sería contradictorio: el reclutador
+    # recibiría "candidato excepcional" y "revisa este CV" por la misma persona,
+    # y la sospecha existe precisamente porque la cobertura puede estar inflada.
+    if verificacion and verificacion.get("sospechoso"):
+        veredicto["motivo"] = (
+            "El perfil quedó marcado para revisión manual por la verificación "
+            "contra el documento: la alerta de talento se suprime."
+        )
+        return veredicto
 
     if not silo_destino:
         veredicto["motivo"] = "Postulación a la bolsa global: no hay vacante contra la que evaluar."
@@ -209,6 +221,20 @@ def evaluar_postulacion(silo_destino: str, datos_candidato: dict) -> dict:
         )
         return veredicto
 
+    # --- Señal 1.b: suelo de afinidad compuesta ---
+    # La cobertura sola es una señal gruesa cuando la vacante declara pocos
+    # requisitos (con dos, el 50 % se alcanza cubriendo uno) y cuando el banco
+    # es demasiado pequeño para que el percentil corrija. El suelo se aplica
+    # sobre la afinidad COMPUESTA, cuya escala sí tiene un cero real, no sobre
+    # la similitud coseno que motivó retirar el umbral fijo del 85 %.
+    if float(afinidad or 0) < settings.UMBRAL_AFINIDAD_ALERTA:
+        veredicto["motivo"] = (
+            f"Cubre {len(cobertura['cubiertos'])} de {cobertura['total']} requisitos, "
+            f"pero la afinidad ({afinidad}%) queda por debajo del umbral de alerta "
+            f"({settings.UMBRAL_AFINIDAD_ALERTA:g}%)."
+        )
+        return veredicto
+
     # --- Señal 2: posición dentro del banco de talento ---
     percentil, muestra = _percentil_en_banco(criterio, distancia)
     veredicto["percentil"] = percentil
@@ -226,7 +252,9 @@ def evaluar_postulacion(silo_destino: str, datos_candidato: dict) -> dict:
             f"está en el percentil {percentil:.0f} del banco de talento."
         )
     else:
-        # Banco pequeño: el percentil no es informativo y la cobertura decide sola.
+        # Banco pequeño: el percentil no es informativo y no debe viajar en el
+        # correo (un "percentil 0" sobre dos perfiles confunde más que informa).
+        veredicto["percentil"] = None
         veredicto["motivo"] = (
             f"Cubre {len(cobertura['cubiertos'])} de {cobertura['total']} requisitos. "
             f"El banco de talento es demasiado pequeño para situarlo por percentil."
@@ -236,14 +264,14 @@ def evaluar_postulacion(silo_destino: str, datos_candidato: dict) -> dict:
     return veredicto
 
 
-def evaluar_y_notificar(silo_destino: str, datos_candidato: dict) -> dict:
+def evaluar_y_notificar(silo_destino: str, datos_candidato: dict, verificacion: dict = None) -> dict:
     """Evalúa la postulación y, si procede, despacha la alerta. Nunca propaga errores.
 
     Se ejecuta en un hilo secundario bajo un patrón fire-and-forget: un fallo aquí
     no debe afectar a la confirmación que ya recibió el candidato.
     """
     try:
-        veredicto = evaluar_postulacion(silo_destino, datos_candidato)
+        veredicto = evaluar_postulacion(silo_destino, datos_candidato, verificacion=verificacion)
         if veredicto["alertar"]:
             enviar_alerta_talento(
                 nombre_candidato=datos_candidato.get("nombre_completo", "Candidato Destacado"),

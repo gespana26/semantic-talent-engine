@@ -1,5 +1,6 @@
 """Módulo encargado del procesamiento gráfico, rasterización y ciclo de vida de activos de documentos temporales."""
 import os
+import tempfile
 
 import fitz  # PyMuPDF
 from PIL import Image
@@ -13,18 +14,30 @@ class CVImageExtractor:
         return (value // 28) * 28
 
     def pdf_to_images(self, pdf_path: str) -> list:
-        """Convierte las páginas del PDF a imágenes matemáticamente compatibles con Qwen2.5-VL."""
+        """Convierte las páginas del PDF a imágenes matemáticamente compatibles con Qwen2.5-VL.
+
+        Las imágenes se escriben en un directorio temporal ÚNICO por invocación
+        (tempfile.mkdtemp), no con nombres fijos en el directorio de trabajo.
+        Dos efectos deliberados: dos postulaciones simultáneas en el portal no
+        pueden pisarse las páginas entre sí (el nombre fijo temp_page_N.png las
+        hacía compartidas entre todos los usuarios del proceso), y nunca se
+        sobreescribe un fichero de una ejecución anterior que otro proceso
+        mantenga bloqueado, que en Windows aborta la extracción con
+        "cannot remove file: Permission denied".
+        """
         doc = fitz.open(pdf_path)
         image_paths = []
-        
+
         # Mantenemos el escalado base para que Qwen lea con nitidez
-        zoom_matrix = fitz.Matrix(1.5, 1.5) 
-        
+        zoom_matrix = fitz.Matrix(1.5, 1.5)
+
+        tmp_dir = tempfile.mkdtemp(prefix="cv_pages_")
+
         for page_num in range(len(doc)):
             page = doc.load_page(page_num)
             pix = page.get_pixmap(matrix=zoom_matrix)
-            
-            output_path = f"temp_page_{page_num}.png"
+
+            output_path = os.path.join(tmp_dir, f"page_{page_num}.png")
             pix.save(output_path)
             
             # --- PARCHE DE INMUNIDAD PARA QWEN2.5-VL ---
@@ -41,14 +54,30 @@ class CVImageExtractor:
             # -------------------------------------------
                     
             image_paths.append(output_path)
-            
+
+        doc.close()
         return image_paths
 
     def clear_temp_images(self, image_paths: list):
-        """Limpia los archivos gráficos temporales generados durante la inferencia."""
+        """Limpia los archivos gráficos temporales y su directorio de invocación.
+
+        La limpieza es tolerante a fallos: un fichero bloqueado no debe tumbar
+        la postulación, y un directorio que no quede vacío lo recogerá el
+        sistema operativo con el resto del temporal.
+        """
+        directorios = set()
         for path in image_paths:
+            directorios.add(os.path.dirname(path))
             if os.path.exists(path):
                 try:
                     os.remove(path)
                 except Exception as e:
                     print(f"[LOG] No se pudo eliminar la imagen temporal {path}: {e}")
+
+        for directorio in directorios:
+            # Solo se retiran los directorios creados por este módulo.
+            if directorio and os.path.basename(directorio).startswith("cv_pages_"):
+                try:
+                    os.rmdir(directorio)
+                except OSError:
+                    pass  # No vacío o bloqueado: no es motivo para fallar.
