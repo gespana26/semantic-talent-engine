@@ -4,10 +4,12 @@ from datetime import datetime
 
 import chromadb
 from chromadb.utils import embedding_functions
+
 from config import settings
 from config.settings import clean_collection_name
 from core.data_hygiene import primer_dato_valido
-from models.schemas import VacancyStructure, CandidateStructure
+from models.schemas import CandidateStructure, VacancyStructure
+
 
 class CVVectorStoreManager:
     """Administra operaciones atómicas e idempotentes de escritura, actualización e indexación dentro de ChromaDB."""
@@ -90,11 +92,22 @@ class CVVectorStoreManager:
         return f"CANDIDATO_{digest}"
 
     def store_candidate(self, candidate_data: CandidateStructure, pdf_path: str, formulario: dict, candidate_id: str = None) -> str:
-        """Almacena e indexa el perfil vectorial del candidato asociando metadatos estructurados y su ruta lógica de archivo.
+        """Almacena e indexa el perfil vectorial del candidato con sus metadatos.
 
         La precedencia es formulario > extracción, pero se resuelve con
         `primer_dato_valido` y no con `or`: un centinela como "0000" es
-        *truthy* y con `or` descartaria el dato real extraido del documento.
+        *truthy* y con `or` descartaría el dato real extraído del documento.
+
+        Args:
+            candidate_data: Perfil estructurado extraído del CV.
+            pdf_path: Ruta al PDF almacenado, guardada como metadato.
+            formulario: Datos confirmados por el candidato, que tienen
+                precedencia sobre los extraídos.
+            candidate_id: Identificador a reutilizar; si es ``None`` se deriva
+                del correo para que volver a postularse actualice el registro.
+
+        Returns:
+            El identificador con el que quedó indexado el candidato.
         """
         try:
             nombre_final_previo = primer_dato_valido(
@@ -129,8 +142,13 @@ class CVVectorStoreManager:
                     
                     historial_str += f"- {cargo} en {empresa}{duracion_txt}: {responsabilidades}\n"
 
+            # El documento vectorizado contiene solo señal profesional. El nombre
+            # queda fuera a propósito: es un canal conocido de señal demográfica
+            # —origen y género— y no aporta capacidad de emparejamiento, porque
+            # el criterio de la vacante no tiene con qué emparejarlo. Los datos de
+            # identidad viven en los metadatos, que es donde la búsqueda por
+            # nombre y por correo los lee (`buscar_candidato_por_identidad`).
             document_text = (
-                f"Candidato: {nombre_final}\n"
                 f"Nivel Académico: {getattr(candidate_data, 'nivel_academico_maximo', 'N/A')}\n"
                 f"Años de Experiencia Total: {getattr(candidate_data, 'anios_experiencia_total', 0)}\n"
                 f"Perfil Profesional: {candidate_data.perfil_profesional}\n"

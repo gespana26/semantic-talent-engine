@@ -1,46 +1,16 @@
 import os
 import tempfile
-import streamlit as st
 import threading
+
+import streamlit as st
+
 from config import settings
-from config.settings import clean_collection_name
+from core.auto_match import evaluar_y_notificar
 from core.data_hygiene import email_valido, primer_dato_valido, telefono_valido
-from core.search_engine import CVSearchEngine
 from core.orchestrator import CandidateOrchestrator
-from models.ai_provider import OpenAIProvider, LocalOllamaProvider
-from core.email_service import enviar_alerta_talento
 from core.vacancy_catalog import obtener_vacantes_publicas
+from models.ai_provider import LocalOllamaProvider, OpenAIProvider
 from views.components import render_grilla_perfil
-
-
-def evaluar_y_notificar_background(silo_destino, datos_extraidos):
-    """Ejecuta un auto-match silencioso. Si el candidato es Top y >= 85%, alerta al reclutador."""
-    try:
-        if not silo_destino:
-            return
-
-        coleccion_target = clean_collection_name(silo_destino)
-        buscador = CVSearchEngine(collection_name=coleccion_target)
-        texto_vacante = buscador.obtener_perfil_vacante()
-
-        if not texto_vacante:
-            return
-
-        candidatos_top = buscador.search_candidates(query_text=texto_vacante, limit=10)
-
-        correo_nuevo = str(datos_extraidos.get('correo_electronico', '')).lower().strip()
-        nombre_nuevo = datos_extraidos.get('nombre_completo', 'Candidato Destacado')
-        extracto = datos_extraidos.get('perfil_profesional', 'Extracto no disponible')[:250] + "..."
-
-        for cand in candidatos_top:
-            if cand.get('correo', '').lower().strip() == correo_nuevo:
-                afinidad = cand.get('porcentaje_afinidad', 0)
-                if afinidad >= 85.0:
-                    enviar_alerta_talento(nombre_nuevo, silo_destino, afinidad, extracto)
-                break
-
-    except Exception as e:
-        print(f"Error silencioso en el hilo de telemetría: {e}")
 
 
 def _instanciar_proveedor():
@@ -259,8 +229,11 @@ def _render_fase_confirmacion():
     datos_confirmados["telefono_movil"] = datos_candidato_web["telefono"]
 
     if cargo_destino.strip():
+        # La decisión de alerta vive en core.auto_match, la misma que usa la CLI:
+        # cobertura de requisitos más percentil en el banco, no un umbral fijo de
+        # afinidad. El portal la invoca en lugar de reimplementarla.
         hilo_alerta = threading.Thread(
-            target=evaluar_y_notificar_background,
+            target=evaluar_y_notificar,
             args=(cargo_destino, datos_confirmados)
         )
         hilo_alerta.start()

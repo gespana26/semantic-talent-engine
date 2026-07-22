@@ -1,9 +1,11 @@
 """Módulo encargado de despachar notificaciones asíncronas vía SMTP."""
 
 import smtplib
-from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+
 from config import settings
+
 
 def _bloque_requisitos(cobertura: dict, percentil) -> str:
     """Redacta la justificación de la alerta en términos verificables.
@@ -49,8 +51,38 @@ def _bloque_requisitos(cobertura: dict, percentil) -> str:
     return "".join(filas)
 
 
+def _bloque_factores(desglose: dict) -> str:
+    """Explica los dos multiplicadores cuando alguno rebaja la afinidad.
+
+    Solo se mencionan si penalizan. Un factor de 1,0 no aporta información al
+    reclutador y alargaría el correo con lo que se da por supuesto.
+    """
+    if not desglose:
+        return ""
+
+    filas = []
+    if desglose.get("factor_experiencia", 1) < 1:
+        filas.append(
+            f"<li>Experiencia: {desglose.get('anios_candidato')} de "
+            f"{desglose.get('anios_requeridos')} años exigidos</li>"
+        )
+    academico = desglose.get("academico") or {}
+    if desglose.get("factor_profesion", 1) < 1 and not academico.get("sin_requisitos"):
+        faltan = ", ".join(academico.get("faltantes") or [])
+        filas.append(f"<li>Formación: no se detectó {faltan}</li>" if faltan
+                     else "<li>Formación: no coincide con la exigida</li>")
+
+    if not filas:
+        return ""
+    return (
+        "<p><strong>⚖️ Ajustes aplicados a la afinidad:</strong></p>"
+        "<ul style='margin-top:4px;'>" + "".join(filas) + "</ul>"
+    )
+
+
 def enviar_alerta_talento(nombre_candidato: str, silo_destino: str, afinidad: float,
-                          extracto: str, cobertura: dict = None, percentil=None):
+                          extracto: str, cobertura: dict = None, percentil=None,
+                          desglose: dict = None):
     """Redacta y despacha un correo HTML al reclutador notificando un alto match."""
 
     correo_origen = settings.EMAIL_SENDER_USER
@@ -78,6 +110,7 @@ def enviar_alerta_talento(nombre_candidato: str, silo_destino: str, afinidad: fl
 
             <h3>Por qué te avisamos:</h3>
             {_bloque_requisitos(cobertura, percentil)}
+            {_bloque_factores(desglose)}
 
             <h3>Extracto del Perfil:</h3>
             <p style="font-style: italic; color: #555;">"{extracto}"</p>

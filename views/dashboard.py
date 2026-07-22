@@ -1,13 +1,17 @@
+import json
 import os
+
 import streamlit as st
+
 from config import settings
 from config.settings import clean_collection_name
-from core.search_engine import CVSearchEngine
-from core.query_translator import QueryTranslator
 from core.orchestrator import VacancyOrchestrator
-from models.ai_provider import OpenAIProvider, LocalOllamaProvider
-from core.security import verificar_credenciales, generar_token, validar_token
-from views.components import obtener_resumen_silos, modal_detalle_vacante, modal_perfil_completo
+from core.query_translator import QueryTranslator
+from core.search_engine import CVSearchEngine
+from core.security import generar_token, validar_token, verificar_credenciales
+from models.ai_provider import LocalOllamaProvider, OpenAIProvider
+from views.components import modal_detalle_vacante, modal_perfil_completo, obtener_resumen_silos
+
 
 def render_dashboard_reclutador():
     """Renderiza el panel de búsqueda avanzado, protegiéndolo con autenticación JWT."""

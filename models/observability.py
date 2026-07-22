@@ -174,6 +174,7 @@ def _dummy_observe(*args: Any, **kwargs: Any) -> Callable[..., Any]:
         return args[0]
 
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+        """Devuelve la funcion sin envolver: el tracing esta deshabilitado."""
         return func
 
     return decorator

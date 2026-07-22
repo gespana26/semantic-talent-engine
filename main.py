@@ -1,21 +1,14 @@
 """Punto de entrada principal del sistema encargado del bootstraping e inicialización de dependencias."""
 
-from config import settings
-from core.orchestrator import VacancyOrchestrator, CandidateOrchestrator
+from config.providers import get_ai_provider
 from core.cli_console import RECRUITMENTConsoleApp
+from core.orchestrator import CandidateOrchestrator, VacancyOrchestrator
+
 
 def main():
-    # 1. Resolución e Inyección de dependencias dinámicas del proveedor de IA
-    if settings.AI_PROVIDER_TYPE == "openai":
-        from models.ai_provider import OpenAIProvider
-        ai_service = OpenAIProvider()
-    elif settings.AI_PROVIDER_TYPE == "ollama":
-        from models.ai_provider import LocalOllamaProvider
-        ai_service = LocalOllamaProvider()
-    else:
-        raise ValueError(f"Tipo de configuración de proveedor de IA no soportada: {settings.AI_PROVIDER_TYPE}")
+    # 1. Composition root: el unico punto donde se decide el proveedor de IA.
+    ai_service = get_ai_provider()
 
-    # 2. Inicialización de la capa lógica de negocio (Orquestadores)
     orquestador_vacantes = VacancyOrchestrator(ai_provider=ai_service)
     orquestador_candidatos = CandidateOrchestrator(ai_provider=ai_service)
     

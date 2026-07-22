@@ -1,21 +1,24 @@
 """Modulo que actua como motor de traduccion interna de consultas, mapeando solicitudes linguisticas libres en propiedades logicas."""
 
-import json
-from openai import OpenAI
-import ollama
 from pydantic import ValidationError
+
+from config.providers import get_ai_provider
 from models.schemas import ChromaQueryStructure
-from config import settings
+
 
 class QueryTranslator:
     """Compilador NLI encargado de transformar requerimientos textuales en logica binaria de consulta estructurada."""
     
-    def __init__(self):
-        self.provider_type = settings.AI_PROVIDER_TYPE
-        self.model_name = settings.MODEL_NAME
-        
-        if self.provider_type == "openai":
-            self.openai_client = OpenAI(api_key=settings.OPENAI_API_KEY)
+    def __init__(self, ai_provider=None):
+        """Recibe el proveedor ya construido en lugar de elegirlo.
+
+        Este componente instanciaba su propio cliente y ramificaba con `if/elif`
+        segun `AI_PROVIDER_TYPE`. Era el unico punto de `core/` que sabia contra
+        que proveedor hablaba, y por eso anadir un tercero exigia tocar la logica
+        de negocio pese a la promesa contraria del objetivo 5. Ahora solo conoce
+        el contrato `BaseLLMProvider`.
+        """
+        self.ai_provider = ai_provider or get_ai_provider()
         
         ''' Para el PROMPT usamos la técnica Few-Shot Prompting (Inyección de Ejemplos)
         para enseñar al modelo a generar la estructura JSON exacta que necesitamos, incluyendo la lógica de filtrado.
@@ -71,50 +74,21 @@ class QueryTranslator:
         5. Return ONLY a valid JSON object. No markdown formatting outside the JSON, no explanations.
         """
 
-    def _translate_via_openai(self, prompt_reclutador: str) -> ChromaQueryStructure:
-        """Metodo independiente para OpenAI utilizando JSON Object Mode para dar soporte a diccionarios dinamicos."""
-        response = self.openai_client.chat.completions.create(
-            model=self.model_name,
-            messages=[
-                {"role": "system", "content": self.system_prompt},
-                {"role": "user", "content": f"Compile the following block: '{prompt_reclutador}'"}
-            ],
-            response_format={"type": "json_object"},  # Evita la restriccion de additionalProperties
-            # Este componente compila logica booleana de filtros: la misma
-            # consulta debe producir el mismo filtro. Sin fijarlo corria a
-            # temperature 1.0, lo que contradecia la promesa de determinismo del
-            # pipeline en su punto mas sensible.
-            temperature=0.0,
-            seed=settings.RANDOM_SEED
+    def translate(self, prompt_reclutador: str) -> ChromaQueryStructure:
+        """Compila la consulta con el proveedor inyectado, sea cual sea."""
+        crudo = self.ai_provider.complete_json(
+            system_prompt=self.system_prompt,
+            user_prompt=f"Compile the following block: '{prompt_reclutador}'"
         )
-        raw_content = response.choices[0].message.content.strip()
-        return ChromaQueryStructure.model_validate_json(raw_content)
-
-    def _translate_via_ollama(self, prompt_reclutador: str) -> ChromaQueryStructure:
-        """Metodo independiente para Ollama utilizando el motor de inferencia local."""
-        response = ollama.chat(
-            model=self.model_name,
-            messages=[
-                {"role": "system", "content": self.system_prompt},
-                {"role": "user", "content": f"Compile the following block: '{prompt_reclutador}'"}
-            ],
-            format="json",
-            options={"temperature": 0.0, "seed": settings.RANDOM_SEED}
-        )
-        raw_content = response["message"]["content"].strip()
-        return ChromaQueryStructure.model_validate_json(raw_content)
+        return ChromaQueryStructure.model_validate_json(crudo)
 
     def translate_prompt_to_chroma(self, prompt_reclutador: str) -> ChromaQueryStructure:
-        """Enrutador principal que delega la ejecucion al metodo independiente correspondiente."""
+        """Punto de entrada publico. Se conserva el nombre para no romper a las vistas."""
         try:
-            if self.provider_type == "openai":
-                return self._translate_via_openai(prompt_reclutador)
-            elif self.provider_type == "ollama":
-                return self._translate_via_ollama(prompt_reclutador)
-            else:
-                raise ValueError(f"Proveedor no soportado: {self.provider_type}")
-                
+            return self.translate(prompt_reclutador)
         except ValidationError as ve:
-            raise RuntimeError(f"Anomalia estructural en el esquema de salida durante la validacion del JSON compilado: {ve}")
+            raise RuntimeError(
+                f"Anomalia estructural en el esquema de salida durante la validacion del JSON compilado: {ve}"
+            )
         except Exception as e:
-            raise RuntimeError(f"Fallo en el pipeline de traduccion al conectar con el proveedor ({self.provider_type}): {e}")
+            raise RuntimeError(f"Fallo en el pipeline de traduccion de la consulta: {e}")

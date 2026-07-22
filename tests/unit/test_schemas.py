@@ -25,7 +25,6 @@ from models.schemas import (
     VacancyStructure,
 )
 
-
 # ---------------------------------------------------------------------------
 # VacancyStructure
 # ---------------------------------------------------------------------------
@@ -107,9 +106,16 @@ def test_experiencia_laboral_valid_payload() -> None:
     assert exp.duracion_anios == pytest.approx(2.5)
 
 
-def test_experiencia_laboral_missing_field_rejected() -> None:
+def test_experiencia_laboral_partial_payload_degrades() -> None:
+    """Una entrada incompleta del historial no invalida el resto del perfil."""
+    exp = ExperienciaLaboral(empresa="Acme", cargo="Dev")
+    assert exp.duracion_anios == pytest.approx(0.0)
+
+
+def test_experiencia_laboral_rejects_non_numeric_duration() -> None:
+    """Degradar no es aceptar basura: el tipo se sigue exigiendo."""
     with pytest.raises(ValidationError):
-        ExperienciaLaboral(empresa="Acme", cargo="Dev")  # type: ignore[call-arg]
+        ExperienciaLaboral(empresa="Acme", cargo="Dev", duracion_anios="tres años")  # type: ignore[arg-type]
 
 
 # ---------------------------------------------------------------------------
@@ -158,27 +164,49 @@ def test_candidate_ubicacion_override_is_respected() -> None:
 
 
 @pytest.mark.parametrize(
-    "missing_field",
+    ("missing_field", "expected_default"),
     [
-        "nombre_completo",
-        "correo_electronico",
-        "telefono_movil",
-        "nivel_academico_maximo",
-        "educacion_detalle",
-        "anios_experiencia_total",
-        "historial_laboral",
-        "perfil_profesional",
-        "hard_skills",
-        "soft_skills",
+        ("nombre_completo", ""),
+        ("correo_electronico", ""),
+        ("telefono_movil", ""),
+        ("nivel_academico_maximo", ""),
+        ("educacion_detalle", []),
+        ("anios_experiencia_total", 0),
+        ("historial_laboral", []),
+        ("perfil_profesional", ""),
+        ("hard_skills", []),
+        ("soft_skills", []),
     ],
 )
-def test_candidate_missing_required_field_is_rejected(missing_field: str) -> None:
+def test_candidate_missing_field_degrades_instead_of_failing(
+    missing_field: str, expected_default: object
+) -> None:
+    """La omision de un campo por parte del LLM degrada ese campo, no la postulacion.
+
+    El extractor es probabilistico: exigirle un campo bajo pena de excepcion
+    convierte un fallo parcial de extraccion en la perdida total de un
+    candidato. La obligatoriedad de la identidad se traslada al paso de
+    confirmacion del formulario, donde el dato es verificable.
+    """
     payload = _valid_candidate_payload()
     payload.pop(missing_field)
-    with pytest.raises(ValidationError) as exc_info:
+    candidate = CandidateStructure(**payload)
+    assert getattr(candidate, missing_field) == expected_default
+
+
+def test_candidate_still_rejects_wrong_types() -> None:
+    """Degradar campos ausentes no relaja la validacion de los presentes."""
+    payload = _valid_candidate_payload() | {"anios_experiencia_total": "seis"}
+    with pytest.raises(ValidationError):
         CandidateStructure(**payload)
-    error_fields = {err["loc"][0] for err in exc_info.value.errors()}
-    assert missing_field in error_fields
+
+
+def test_candidate_empty_payload_is_valid_but_empty() -> None:
+    """Caso limite: extraccion fallida completa produce un perfil vacio, no una excepcion."""
+    candidate = CandidateStructure()
+    assert candidate.nombre_completo == ""
+    assert candidate.correo_electronico == ""
+    assert candidate.historial_laboral == []
 
 
 # ---------------------------------------------------------------------------

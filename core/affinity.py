@@ -51,6 +51,15 @@ def factor_experiencia(anios_candidato, anios_requeridos) -> float:
     requisito, que es donde se decide.
 
     Una vacante que no declara mínimo no puede penalizar por este concepto.
+
+    Args:
+        anios_candidato: Años de experiencia del candidato.
+        anios_requeridos: Años mínimos que exige la vacante; ``0`` o ausente
+            desactiva la penalización.
+
+    Returns:
+        Factor multiplicativo en el rango 0-1: vale 1 cuando el candidato alcanza
+        o supera el mínimo, y decrece con raíz cuadrada por debajo de él.
     """
     try:
         requeridos = float(anios_requeridos or 0)
@@ -78,6 +87,16 @@ def factor_profesion(ajuste_academico: float, hay_requisito: bool) -> float:
     multiplicador que llegara a cero convertiría un fallo de extracción en el
     descarte silencioso de un candidato válido, justo lo que el objetivo de no
     perder talento pretende evitar.
+
+    Args:
+        ajuste_academico: Grado de correspondencia entre la formación del
+            candidato y la exigida, en el rango 0-1.
+        hay_requisito: ``True`` si la vacante declara estudios requeridos; si es
+            ``False`` no se penaliza y el factor es 1.
+
+    Returns:
+        Factor multiplicativo entre `PISO_FACTOR_PROFESION` y 1, con curva
+        cóncava para que las carreras próximas no se hundan.
     """
     if not hay_requisito:
         return 1.0
@@ -98,11 +117,24 @@ def _educacion_del_candidato(candidato: dict) -> list:
 
 def calcular_afinidad(vacante: dict, candidato: dict, similitud_normalizada: float = 0.0,
                       funcion_embeddings=None) -> dict:
-    """Calcula la afinidad y devuelve su desglose completo.
+    """Calcula la afinidad candidato-vacante y devuelve su desglose completo.
 
-    `similitud_normalizada` se espera en el rango 0-1, ya descontada la línea
-    base de la vacante. El desglose se devuelve entero para que la interfaz
-    pueda justificar el número en lugar de limitarse a mostrarlo.
+    El desglose se devuelve entero para que la interfaz pueda justificar el
+    número en lugar de limitarse a mostrarlo.
+
+    Args:
+        vacante: Campos estructurados de la oferta; se leen `hard_skills`,
+            `estudios_requeridos` y `experiencia_minima_anos`.
+        candidato: Perfil extraído del CV con sus habilidades, formación y años.
+        similitud_normalizada: Similitud en el rango 0-1, ya descontada la línea
+            base de la vacante.
+        funcion_embeddings: Cliente de embeddings para la verificación por
+            contraste; si es ``None``, la cobertura recae solo en la vía léxica.
+
+    Returns:
+        Diccionario con la afinidad final (0-100) y sus componentes: cobertura,
+        ajuste académico, similitud normalizada y los factores de experiencia y
+        profesión aplicados.
     """
     exigidas = [h for h in (vacante.get("hard_skills") or []) if str(h).strip()]
     estudios = [e for e in (vacante.get("estudios_requeridos") or []) if str(e).strip()]

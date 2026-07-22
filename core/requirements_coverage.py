@@ -28,9 +28,9 @@ El resultado es además explicable: no solo dice cuánto cubre, sino **qué falt
 """
 
 import re
-import unicodedata
 
 from config import settings
+from core.data_hygiene import normalizar_texto
 
 # Palabras sin capacidad discriminante al comparar habilidades.
 VACIAS = {
@@ -41,10 +41,8 @@ LONGITUD_MINIMA_TOKEN = 3
 
 
 def normalizar(texto: str) -> str:
-    """Minúsculas y sin acentos, para que la comparación léxica no falle por tildes."""
-    sin_acentos = unicodedata.normalize("NFKD", str(texto))
-    sin_acentos = "".join(c for c in sin_acentos if not unicodedata.combining(c))
-    return re.sub(r"\s+", " ", sin_acentos.lower()).strip()
+    """Alias de `data_hygiene.normalizar_texto`: una sola implementacion compartida."""
+    return normalizar_texto(texto)
 
 
 def tokens_significativos(texto: str) -> set:
@@ -155,9 +153,19 @@ def evaluar_cobertura(requisitos: list, habilidades_candidato: list,
                       texto_candidato: str = "", funcion_embeddings=None) -> dict:
     """Determina qué requisitos de la vacante cubre el candidato y cuáles no.
 
-    `texto_candidato` puede ser el perfil completo: la vía léxica lo aprovecha
-    para no exigir que la habilidad esté declarada como tal si aparece descrita
-    en la experiencia.
+    Args:
+        requisitos: Habilidades o estudios exigidos por la vacante.
+        habilidades_candidato: Habilidades declaradas en el perfil del candidato.
+        texto_candidato: Perfil completo opcional; la vía léxica lo aprovecha
+            para dar por cubierta una habilidad descrita en la experiencia
+            aunque no aparezca declarada como tal.
+        funcion_embeddings: Cliente de embeddings para la verificación por
+            contraste semántico; si es ``None``, solo se aplica la vía léxica.
+
+    Returns:
+        Diccionario con la proporción cubierta (``ratio``), las listas de
+        requisitos cubiertos y faltantes, y las equivalencias detectadas por
+        contraste.
     """
     requisitos = [r for r in (requisitos or []) if str(r).strip()]
     habilidades = [h for h in (habilidades_candidato or []) if str(h).strip()]

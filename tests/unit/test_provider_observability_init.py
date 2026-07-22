@@ -1,10 +1,10 @@
 """Unit tests for provider initialization under Langfuse enable/disable.
 
 Scope (LLM observability slice):
-- Disabled state: `OpenAIProvider`, `LocalOllamaProvider`, and
-  `GemmaMultimodalProvider` initialize without raising, the OpenAI client
-  is the native SDK (no drop-in swap), and Ollama methods are callable
-  through the no-op `@observe` decorator without exceptions.
+- Disabled state: `OpenAIProvider` and `LocalOllamaProvider` initialize
+  without raising, the OpenAI client is the native SDK (no drop-in swap),
+  and Ollama methods are callable through the no-op `@observe` decorator
+  without exceptions.
 - Enabled state (mocked Langfuse): providers initialize without raising,
   `OpenAIProvider` uses the drop-in `langfuse.openai.OpenAI` client with
   the configured `langfuse_client` injected.
@@ -27,7 +27,7 @@ import pytest
 
 
 def _reload_chain() -> None:
-    """Reload settings -> observability -> ai_provider -> gemma_provider.
+    """Reload settings -> observability -> ai_provider.
 
     Order matters: each downstream module reads the upstream module's
     module-level state at import. Settings is reloaded first so the rest
@@ -37,21 +37,6 @@ def _reload_chain() -> None:
     importlib.reload(sys.modules["models.observability"])
     if "models.ai_provider" in sys.modules:
         importlib.reload(sys.modules["models.ai_provider"])
-    if "models.gemma_provider" in sys.modules:
-        importlib.reload(sys.modules["models.gemma_provider"])
-
-
-def _arm_system_prompt(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Patch `SYSTEM_PROMPT` onto the freshly reloaded settings module.
-
-    `GemmaMultimodalProvider.__init__` reads `settings.SYSTEM_PROMPT`, but
-    that constant is not defined in `config/settings.py` (pre-existing
-    latent bug, unrelated to this change). The baseline test suite never
-    instantiated the Gemma provider, so the bug was hidden. We patch it
-    here to exercise provider init without altering production scope.
-    """
-    import config.settings as settings_module
-    monkeypatch.setattr(settings_module, "SYSTEM_PROMPT", "system prompt stub", raising=False)
 
 
 @pytest.fixture
@@ -64,9 +49,8 @@ def isolated_env(monkeypatch: pytest.MonkeyPatch):
     """
     monkeypatch.setattr(dotenv, "load_dotenv", lambda *a, **k: False)
     import config.settings  # noqa: F401
-    import models.observability  # noqa: F401
     import models.ai_provider  # noqa: F401
-    import models.gemma_provider  # noqa: F401
+    import models.observability  # noqa: F401
     yield
     # Teardown: clean env and reload so module-level caches are reset.
     monkeypatch.delenv("LANGFUSE_ENABLED", raising=False)
@@ -126,22 +110,19 @@ def mocked_langfuse(monkeypatch: pytest.MonkeyPatch):
 
 def test_disabled_state_all_providers_init_without_errors(monkeypatch, isolated_env) -> None:
     _reload_chain()
-    _arm_system_prompt(monkeypatch)
-    from models.ai_provider import OpenAIProvider, LocalOllamaProvider
-    from models.gemma_provider import GemmaMultimodalProvider
+    from models.ai_provider import LocalOllamaProvider, OpenAIProvider
 
     openai_provider = OpenAIProvider()
     ollama_provider = LocalOllamaProvider()
-    gemma_provider = GemmaMultimodalProvider()
 
     assert openai_provider.model is not None
     assert ollama_provider.model is not None
-    assert gemma_provider.model_name is not None
 
 
 def test_disabled_state_uses_native_openai_sdk(isolated_env) -> None:
     _reload_chain()
     from openai import OpenAI as NativeOpenAI
+
     from models.ai_provider import OpenAIProvider
 
     provider = OpenAIProvider()
@@ -153,18 +134,14 @@ def test_disabled_state_ollama_methods_callable_without_decorator_exceptions(
 ) -> None:
     """The no-op @observe decorator must not interfere with method binding."""
     _reload_chain()
-    _arm_system_prompt(monkeypatch)
     from models.ai_provider import LocalOllamaProvider
-    from models.gemma_provider import GemmaMultimodalProvider
 
     ollama_provider = LocalOllamaProvider()
-    gemma_provider = GemmaMultimodalProvider()
 
     assert callable(ollama_provider.parse_cv_images_to_json)
     assert callable(ollama_provider.parse_vacancy)
     assert callable(ollama_provider.reconcile_vacancy_name)
-    assert callable(gemma_provider.parse_cv_images_to_json)
-    assert callable(gemma_provider._attempt_self_correction)
+    assert callable(ollama_provider.complete_json)
 
 
 def test_disabled_state_get_langfuse_client_returns_none(monkeypatch, isolated_env) -> None:
@@ -203,17 +180,14 @@ def test_enabled_state_openai_provider_uses_dropin_client(
     # langfuse.openai.OpenAI no recibe langfuse_client — usa el activo.
 
 
-def test_enabled_state_ollama_and_gemma_init_without_errors(
+def test_enabled_state_ollama_init_without_errors(
     monkeypatch, isolated_env, mocked_langfuse
 ) -> None:
     monkeypatch.setenv("LANGFUSE_ENABLED", "True")
     monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk-public")
     monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-secret")
     _reload_chain()
-    _arm_system_prompt(monkeypatch)
 
     from models.ai_provider import LocalOllamaProvider
-    from models.gemma_provider import GemmaMultimodalProvider
 
     LocalOllamaProvider()
-    GemmaMultimodalProvider()

@@ -15,7 +15,6 @@ from __future__ import annotations
 
 from models.observability import PII_FIELDS, mask_pii
 
-
 # Known PII fields from CandidateStructure (design contract).
 EXPECTED_PII_FIELDS = {
     "nombre_completo",

@@ -1,17 +1,25 @@
 """Módulo encargado de la recuperación semántica de información, filtrado estructural de metadatos y cálculo de índices de afinidad."""
 
 import json
+
 import chromadb
 from chromadb.utils import embedding_functions
+
 from config import settings
 from core import baseline
 from core.affinity import calcular_afinidad, explicar
 from core.data_hygiene import normalizar_texto, primer_dato_valido
 
+
 class CVSearchEngine:
     """Ejecuta consultas de similitud de alta velocidad en espacios vectoriales aplicando Post-Retrieval Filtering en Python."""
     
     def __init__(self, collection_name: str = "talento-global-empresa"):
+        # Se guarda el nombre pedido en lugar de leerlo del objeto de ChromaDB:
+        # es el mismo dato, pero deja de depender de la superficie del driver
+        # —que un doble de test no tiene por qué replicar— y sigue el patrón
+        # que ya usa `CVVectorStoreManager`.
+        self.collection_name = collection_name
         self.client = chromadb.PersistentClient(path=settings.CHROMA_DB_PATH)
         self.embedding_function = embedding_functions.OllamaEmbeddingFunction(
             url=settings.OLLAMA_EMBEDDINGS_ENDPOINT,
@@ -97,13 +105,18 @@ class CVSearchEngine:
         los metadatos.
 
         Se evaluó resolverlo escaneando los documentos en lugar de los metadatos,
-        que ocupan 3,9 veces menos. Se descartó por dos motivos medidos: buscar en
-        el documento completo devuelve **todos** los candidatos ante cualquier
+        que ocupan 3,9 veces menos, y se descartó por dos motivos medidos: buscar
+        en el documento completo devuelve **todos** los candidatos ante cualquier
         palabra común —"ingeniero" o "proyectos" acertaban en los 40 de la
-        prueba—, y restringirlo a la primera línea acopla la búsqueda al formato
-        del texto y **pierde la búsqueda parcial por correo**, porque el correo no
-        está en el documento. El recorrido es O(N) y asumido: es la ruta del
-        comando `/nombre:`, de uso puntual.
+        prueba—, y **el correo no está en el documento**, así que la búsqueda
+        parcial por correo se perdía.
+
+        Ese análisis quedó zanjado al replegar la identidad a los metadatos: el
+        documento vectorizado ya no contiene el nombre, de modo que escanearlo no
+        es una alternativa peor sino imposible. Los metadatos son hoy la única
+        fuente de identidad, que es exactamente lo que sostiene la afirmación de
+        §2.4.2: el nombre no participa del cálculo de afinidad. El recorrido es
+        O(N) y asumido: es la ruta del comando `/nombre:`, de uso puntual.
 
         Lo que sí se corrige es la normalización, que era el fallo real: hoy
         buscar "maria" no encontraba a "María" ni "pena" a "Peña".
@@ -188,7 +201,7 @@ class CVSearchEngine:
         permite responder "no tengo a nadie" en lugar de rellenar la ventana con
         los menos malos.
         """
-        return self.collection.name == self.COLECCION_GLOBAL
+        return self.collection_name == self.COLECCION_GLOBAL
 
     def linea_base(self, criterio: str) -> float:
         """Similitud que obtiene un perfil manifiestamente ajeno frente a este criterio."""
@@ -220,6 +233,21 @@ class CVSearchEngine:
         similitud normalizada: el coseno menos la línea base de esa consulta,
         reescalado. Sigue sin ser la escala antigua —cuyo suelo era el 84 %—,
         pero es una señal más débil, y la interfaz lo distingue.
+
+        Args:
+            query_text: Texto de la consulta o del criterio de la vacante que se
+                vectoriza para recuperar candidatos.
+            limit: Número máximo de resultados a devolver ya re-puntuados.
+            where_filter: Filtro léxico de condiciones obligatorias o
+                excluyentes; ``None`` si no se declaró ninguna.
+            vacante: Campos estructurados de la vacante que habilitan la afinidad
+                compuesta; ``None`` en una búsqueda libre, donde solo hay
+                similitud.
+
+        Returns:
+            Lista de candidatos ordenada por porcentaje de afinidad descendente,
+            cada uno con su desglose y su tipo de puntuación (``afinidad`` o
+            ``similitud``).
         """
         try:
             # El silo es autocontenido: la vacante comparte colección con sus candidatos.

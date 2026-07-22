@@ -20,7 +20,6 @@ from core.requirements_coverage import (
     tokens_significativos,
 )
 
-
 # ---------------------------------------------------------------------------
 # Normalización y tokenización
 # ---------------------------------------------------------------------------
