@@ -2,13 +2,16 @@
 
 import os
 import shutil
+import threading
 import uuid  # Utiliza la biblioteca nativa estándar de Python
 from datetime import datetime, timedelta
 
 import chromadb
 
 from config import settings
+from core import skill_verification
 from core.database import CVVectorStoreManager
+from core.email_service import enviar_alerta_revision_cv
 from core.extractor import CVImageExtractor
 
 
@@ -49,13 +52,26 @@ class VacancyOrchestrator:
             decision = self.ai_provider.reconcile_vacancy_name(vacancy_json.titulo_cargo, colecciones_reales)
             
             es_edicion = decision != "NUEVA" and decision in colecciones_reales
-            nombre_tabla = decision if es_edicion else settings.clean_collection_name(vacancy_json.titulo_cargo)
 
-            # --- EVALUACIÓN DE ESTADO DE INFRAESTRUCTURA Y ESCRITURA EN BASE DE DATOS ---
-            db_manager = CVVectorStoreManager(nombre_cargo=vacancy_json.titulo_cargo)
-            db_manager.collection_name = nombre_tabla
-            db_manager.collection = db_manager.client.get_or_create_collection(name=nombre_tabla)
-            
+            # --- ESCRITURA EN BASE DE DATOS ---
+            # El manager se construye DESPUÉS de resolver el destino y es el único
+            # que crea u obtiene la colección: siempre con la función de embeddings
+            # del proyecto (nomic-embed-text) y distancia coseno. La versión
+            # anterior reasignaba `db_manager.collection` con un
+            # get_or_create_collection sin embedding_function, y ese objeto queda
+            # ligado a la EF por defecto de ChromaDB (MiniLM, 384 dims): la vacante
+            # podía vectorizarse en un espacio distinto al de sus candidatos. Con
+            # chromadb 1.x el daño no se materializó (la colección existente
+            # conserva su EF), pero con el pin histórico 0.6.x la vacante fijaba la
+            # colección a 384 dims y cada postulación al silo fallaba después por
+            # conflicto de dimensión. La regresión se cubre en
+            # tests/unit/test_vacancy_embedding_coherence.py.
+            db_manager = CVVectorStoreManager(
+                nombre_cargo=decision if es_edicion else vacancy_json.titulo_cargo
+            )
+            nombre_tabla = db_manager.collection_name
+
+
             # 📌 PASAMOS EL TEXTO ORIGINAL COMO EQUIPAJE OCULTO
             db_manager.store_vacancy(
                 vacancy_json, 
@@ -104,20 +120,58 @@ class CandidateOrchestrator:
             shutil.copy(pdf_path, ruta_persistente_pdf)
 
             image_paths = self.extractor.pdf_to_images(ruta_persistente_pdf)
+
+            # --- SEGUNDO CANAL DE TEXTO, EN PARALELO CON LA LLAMADA AL LLM ---
+            # La cascada texto-PDF → OCR consume las mismas imágenes que ya se
+            # generaron y siempre termina antes que el modelo multimodal, de
+            # modo que la verificación no añade latencia percibida.
+            canal_texto = {"texto": "", "canal": skill_verification.CANAL_NO_DISPONIBLE}
+            hilo_texto = None
+            if settings.VERIFICACION_SKILLS_HABILITADA:
+                def _extraer_texto():
+                    try:
+                        texto, canal = skill_verification.extraer_texto_documento(
+                            ruta_persistente_pdf, image_paths
+                        )
+                        canal_texto.update({"texto": texto, "canal": canal})
+                    except Exception:
+                        pass  # La verificación degrada; nunca tumba la postulación.
+                hilo_texto = threading.Thread(target=_extraer_texto, daemon=True)
+                hilo_texto.start()
+
             candidate_data_pydantic = self.ai_provider.parse_cv_images_to_json(image_paths)
+
+            # El veredicto se calcula tras el join: comparar habilidades contra
+            # texto ya extraído cuesta microsegundos.
+            verificacion = None
+            if hilo_texto is not None:
+                hilo_texto.join(timeout=120)
+                verificacion = skill_verification.evaluar_verificacion(
+                    list(candidate_data_pydantic.hard_skills or []),
+                    canal_texto["texto"],
+                    canal_texto["canal"],
+                )
 
             return {
                 "status": "success",
                 "candidate_data": candidate_data_pydantic,
                 "ruta_pdf_fisico": ruta_persistente_pdf,
-                "datos_extraidos": candidate_data_pydantic.model_dump()
+                "datos_extraidos": candidate_data_pydantic.model_dump(),
+                "verificacion": verificacion
             }
         finally:
             if image_paths:
                 self.extractor.clear_temp_images(image_paths)
 
-    def register_candidate(self, candidate_data, ruta_persistente_pdf: str, cargo_objetivo: str = "", datos_formulario: dict = None) -> dict:
-        """Indexa un perfil ya extraído (y confirmado) mediante la arquitectura de Doble Índice."""
+    def register_candidate(self, candidate_data, ruta_persistente_pdf: str, cargo_objetivo: str = "",
+                           datos_formulario: dict = None, verificacion: dict = None) -> dict:
+        """Indexa un perfil ya extraído (y confirmado) mediante la arquitectura de Doble Índice.
+
+        El veredicto de verificación se persiste junto al perfil y, si marca
+        sospecha, se despacha en segundo plano un correo de revisión manual al
+        reclutador. La postulación nunca se bloquea por sospecha: la decisión
+        de descartar es humana, el sistema solo la hace visible.
+        """
         if datos_formulario is None:
             datos_formulario = {}
 
@@ -128,18 +182,45 @@ class CandidateOrchestrator:
         cargo_limpio = cargo_objetivo.strip() if cargo_objetivo else ""
         if cargo_limpio and cargo_limpio.lower() != "talento-global-empresa":
             db_vacante = CVVectorStoreManager(nombre_cargo=cargo_limpio)
-            id_en_vacante = db_vacante.store_candidate(candidate_data, ruta_persistente_pdf, datos_formulario)
+            id_en_vacante = db_vacante.store_candidate(
+                candidate_data, ruta_persistente_pdf, datos_formulario, verificacion=verificacion
+            )
 
         # Índice Destino B: Repositorio consolidado histórico global corporativo
         db_global = CVVectorStoreManager(nombre_cargo="talento-global-empresa")
-        id_en_global = db_global.store_candidate(candidate_data, ruta_persistente_pdf, datos_formulario)
+        id_en_global = db_global.store_candidate(
+            candidate_data, ruta_persistente_pdf, datos_formulario, verificacion=verificacion
+        )
+
+        # --- ALERTA DE REVISIÓN MANUAL (fire-and-forget) ---
+        # Mismo patrón que el auto-match: un fallo del correo no debe afectar a
+        # la confirmación que ya recibió el candidato.
+        if verificacion and verificacion.get("sospechoso"):
+            from core.data_hygiene import primer_dato_valido
+            threading.Thread(
+                target=enviar_alerta_revision_cv,
+                kwargs={
+                    "nombre_candidato": primer_dato_valido(
+                        datos_formulario.get("nombre"), candidate_data.nombre_completo,
+                        default="Candidato sin nombre"
+                    ),
+                    "correo_candidato": primer_dato_valido(
+                        datos_formulario.get("correo"), candidate_data.correo_electronico
+                    ),
+                    "vacante_destino": cargo_limpio or "Bolsa Global",
+                    "veredicto": verificacion,
+                    "pdf_path": ruta_persistente_pdf,
+                },
+                daemon=True
+            ).start()
 
         return {
             "status": "success",
             "id_vacante_silo": id_en_vacante,
             "id_bolsa_global": id_en_global,
             "ruta_pdf_fisico": ruta_persistente_pdf,
-            "datos_extraidos": candidate_data.model_dump()
+            "datos_extraidos": candidate_data.model_dump(),
+            "verificacion": verificacion
         }
 
     def process_and_register_candidate(self, pdf_path: str, cargo_objetivo: str = "", datos_formulario: dict = None) -> dict:
@@ -154,5 +235,6 @@ class CandidateOrchestrator:
             candidate_data=extraccion["candidate_data"],
             ruta_persistente_pdf=extraccion["ruta_pdf_fisico"],
             cargo_objetivo=cargo_objetivo,
-            datos_formulario=datos_formulario
+            datos_formulario=datos_formulario,
+            verificacion=extraccion.get("verificacion")
         )

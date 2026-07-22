@@ -85,12 +85,33 @@ UMBRAL_COBERTURA_REQUISITOS = float(os.getenv("UMBRAL_COBERTURA_REQUISITOS", "0.
 # ajenos. Se mide así porque los embeddings ocupan un cono estrecho y una
 # similitud alta, por sí sola, no significa parecido.
 MARGEN_CONTRASTE_REQUISITO = float(os.getenv("MARGEN_CONTRASTE_REQUISITO", "0.08"))
+# 1.b Suelo de afinidad compuesta para la alerta. Un umbral fijo sobre la
+#    afinidad antigua (coseno reescalado) era insostenible porque su suelo
+#    empírico rondaba el 84 %; sobre la afinidad COMPUESTA sí es significativo,
+#    porque su cero es un cero real y la cobertura pesa el 75 %. Evita alertar
+#    de "talento excepcional" a un candidato que apenas roza el umbral de
+#    cobertura en un banco pequeño (caso medido: alerta enviada con 23,44 %).
+#    Con cobertura total y sin penalizaciones la afinidad parte de 75 puntos;
+#    un valor muy alto (>85) puede silenciar a buenos candidatos que pierden
+#    similitud por el idioma del CV (~26 puntos medidos).
+UMBRAL_AFINIDAD_ALERTA = float(os.getenv("UMBRAL_AFINIDAD_ALERTA", "70"))
 # 2. Percentil dentro del banco de talento para esa vacante. Sitúa al candidato
 #    contra la distribución real en lugar de contra una escala comprimida.
 PERCENTIL_ALERTA = float(os.getenv("PERCENTIL_ALERTA", "80"))
 # Tamaño mínimo del banco para que el percentil sea informativo. Por debajo, la
 # decisión recae solo en la cobertura de requisitos.
 MIN_MUESTRA_PERCENTIL = int(os.getenv("MIN_MUESTRA_PERCENTIL", "5"))
+
+# --- VERIFICACIÓN DEL PERFIL CONTRA EL DOCUMENTO (anti-inyección / anti-alucinación) ---
+# Las habilidades que devuelve el LLM se contrastan con el texto visible del CV
+# por un segundo canal (capa de texto del PDF o, si no existe, OCR opcional).
+# Un perfil por debajo del umbral, o con patrones de instrucciones dirigidas al
+# modelo, se indexa igualmente pero queda marcado y dispara un correo de
+# revisión manual al reclutador. Nunca bloquea la postulación.
+VERIFICACION_SKILLS_HABILITADA = os.getenv("VERIFICACION_SKILLS_HABILITADA", "True").lower() in ("true", "1", "t")
+# Proporción mínima de habilidades extraídas que deben aparecer escritas en el
+# documento para no marcar el perfil como sospechoso.
+UMBRAL_SKILLS_VERIFICADAS = float(os.getenv("UMBRAL_SKILLS_VERIFICADAS", "0.5"))
 
 # --- OBSERVABILIDAD DEL SISTEMA ---
 # Convertimos el string del .env a un booleano real

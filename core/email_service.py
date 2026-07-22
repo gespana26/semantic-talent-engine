@@ -122,6 +122,81 @@ def enviar_alerta_talento(nombre_candidato: str, silo_destino: str, afinidad: fl
     </html>
     """
 
+    _despachar_html(asunto, html_content)
+
+
+def enviar_alerta_revision_cv(nombre_candidato: str, correo_candidato: str, vacante_destino: str,
+                              veredicto: dict, pdf_path: str = ""):
+    """Avisa al reclutador de que un CV requiere revisión manual.
+
+    Se dispara cuando la verificación contra el documento marca sospecha: o el
+    perfil declara habilidades que no aparecen escritas en el CV, o el
+    documento contiene texto con forma de instrucciones dirigidas a la IA. El
+    correo muestra *qué* disparó la sospecha, para que la decisión de descartar
+    sea humana e informada; el sistema nunca descarta solo.
+    """
+    if not veredicto:
+        return
+
+    no_verificadas = veredicto.get("no_verificadas") or []
+    patrones = veredicto.get("patrones_inyeccion") or []
+    verificadas = veredicto.get("verificadas") or []
+    ratio = veredicto.get("ratio")
+
+    filas = [f"<p><strong>Motivo:</strong> {veredicto.get('motivo', 'Sospecha en la verificación.')}</p>"]
+    if patrones:
+        filas.append(
+            "<p><strong style='color:#C0392B;'>🚩 Texto con forma de instrucciones para la IA:</strong></p>"
+            "<ul>" + "".join(f"<li><code>{p}</code></li>" for p in patrones) + "</ul>"
+        )
+    if no_verificadas:
+        filas.append(
+            "<p><strong style='color:#C0392B;'>⚠️ Habilidades declaradas que NO aparecen "
+            "escritas en el documento:</strong> " + ", ".join(no_verificadas) + "</p>"
+        )
+    if ratio is not None:
+        filas.append(
+            f"<p><strong>Contraste:</strong> {len(verificadas)} habilidades verificadas "
+            f"({ratio:.0%}) vía <em>{veredicto.get('canal', '')}</em>.</p>"
+        )
+
+    asunto = f"⚠️ REVISIÓN MANUAL: inconsistencia en el CV de {nombre_candidato}"
+    html_content = f"""
+    <html>
+        <body style="font-family: Arial, sans-serif; color: #333;">
+            <h2 style="color: #C0392B;">Un CV requiere tu revisión manual 🔎</h2>
+            <p>El sistema indexó la postulación, pero la verificación del perfil contra el
+            texto del documento detectó inconsistencias. <strong>Revisa el PDF original antes
+            de considerar a este candidato.</strong></p>
+
+            <div style="background-color: #FDF2F0; padding: 15px; border-left: 4px solid #C0392B; border-radius: 5px;">
+                <p><strong>👤 Candidato:</strong> {nombre_candidato}</p>
+                <p><strong>📧 Contacto:</strong> {correo_candidato or 'No disponible'}</p>
+                <p><strong>🏢 Postulación a:</strong> {str(vacante_destino).replace('-', ' ').title()}</p>
+                <p><strong>📄 PDF:</strong> <code>{pdf_path}</code></p>
+            </div>
+
+            <h3>Qué disparó la alerta:</h3>
+            {"".join(filas)}
+
+            <p style="font-size: 12px; color: #999;">El perfil sigue indexado y visible en el
+            Dashboard; esta alerta solo pide verificación humana. Generado automáticamente por
+            tu ATS Talent Engine.</p>
+        </body>
+    </html>
+    """
+    _despachar_html(asunto, html_content)
+
+
+def _despachar_html(asunto: str, html_content: str):
+    """Envío SMTP compartido por todas las alertas. Nunca propaga errores."""
+    correo_origen = settings.EMAIL_SENDER_USER
+    password_app = settings.EMAIL_SENDER_PASSWORD
+    correo_destino = settings.EMAIL_RECRUITER_TARGET
+
+    if not correo_origen or not password_app or not correo_destino:
+        return
+
     try:
         mensaje = MIMEMultipart("alternative")
         mensaje["Subject"] = asunto
@@ -133,6 +208,6 @@ def enviar_alerta_talento(nombre_candidato: str, silo_destino: str, afinidad: fl
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
             server.login(correo_origen, password_app)
             server.sendmail(correo_origen, correo_destino, mensaje.as_string())
-            
+
     except Exception as e:
         print(f"Error silencioso al enviar el correo: {e}")

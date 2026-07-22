@@ -212,7 +212,11 @@ def _render_fase_confirmacion():
                 candidate_data=extraccion["candidate_data"],
                 ruta_persistente_pdf=extraccion["ruta_pdf_fisico"],
                 cargo_objetivo=cargo_destino,
-                datos_formulario=datos_candidato_web
+                datos_formulario=datos_candidato_web,
+                # El veredicto de verificación viaja con la extracción: se persiste
+                # en los metadatos y, si marca sospecha, alerta al reclutador.
+                # Al candidato no se le muestra: la revisión es asunto interno.
+                verificacion=extraccion.get("verificacion")
             )
         except Exception as e:
             st.error(f"Fallo crítico al registrar la postulación: {e}")
@@ -232,9 +236,11 @@ def _render_fase_confirmacion():
         # La decisión de alerta vive en core.auto_match, la misma que usa la CLI:
         # cobertura de requisitos más percentil en el banco, no un umbral fijo de
         # afinidad. El portal la invoca en lugar de reimplementarla.
+        # El veredicto de verificación viaja con la evaluación: un perfil
+        # sospechoso suprime la alerta de talento (ya disparó la de revisión).
         hilo_alerta = threading.Thread(
             target=evaluar_y_notificar,
-            args=(cargo_destino, datos_confirmados)
+            args=(cargo_destino, datos_confirmados, resultado.get("verificacion"))
         )
         hilo_alerta.start()
 

@@ -187,7 +187,7 @@ class RECRUITMENTConsoleApp:
             if cargo_objetivo.strip():
                 hilo_alerta = threading.Thread(
                     target=evaluar_y_notificar,
-                    args=(cargo_objetivo, res.get("datos_extraidos", {}))
+                    args=(cargo_objetivo, res.get("datos_extraidos", {}), res.get("verificacion"))
                 )
                 hilo_alerta.start()
             # -------------------------------------------------------------
