@@ -1,0 +1,25 @@
+# --- MOTOR VECTORIAL Y PERSISTENCIA DE DATOS ---
+chromadb>=0.5.23
+
+# --- CAPA COGNITIVA E INFERENCIA DE IA ---
+openai==1.61.0
+ollama==0.4.7
+
+# --- OBSERVABILIDAD LLM: trazas, token/costo y clasificacion de errores ---
+langfuse>=2.57.0
+
+# --- GESTION DE VARIABLES DE ENTORNO ---
+python-dotenv==1.0.1
+
+# --- PARSING MULTIMODAL Y PROCESAMIENTO GRAFICO DE ARCHIVOS ---
+PyMuPDF==1.25.3
+
+# --- PROCESAMIENTO DE IMAGENES evaluar la imagen justo antes de enviársela a Ollama---
+Pillow==12.2.0
+
+# --- INTERFAZ GRAFICA WEB con Streamlit ---
+streamlit>=1.28.0
+
+# --- SEGURIDAD Y AUTENTICACION proteccion del dashboard y hash de contraseñas ---
+PyJWT>=2.8.0
+bcrypt>=4.0.0
