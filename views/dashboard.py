@@ -24,6 +24,74 @@ from views.components import modal_detalle_vacante, modal_perfil_completo, obten
 # obligara a encontrarlos todos.
 
 
+def _resumen_para_reclutador(cand: dict) -> list:
+    """Traduce el desglose a lo que un reclutador necesita para decidir.
+
+    La versión anterior mostraba el coseno, la línea base y la fórmula. Eso sirve
+    para defender la métrica ante un tribunal, pero no para decidir a quién
+    llamar: son dos audiencias distintas y el producto se había resuelto para la
+    equivocada. Un reclutador no pregunta cómo se calculó el 72 %, pregunta **qué
+    pide la vacante que esta persona cumple y qué no**.
+
+    Ese dato ya existía y se estaba tirando. `cobertura` guarda los requisitos
+    cubiertos y los que faltan **por su nombre**, y `por_similitud` registra
+    además con qué habilidad concreta del candidato se dio por cubierto cada uno.
+    La interfaz lo resumía todo en «cubre 2 de 3», que es el número sin la
+    información.
+
+    Devuelve líneas de markdown listas para pintar; vacío si no hay desglose
+    —búsqueda libre sin vacante—, donde no hay requisitos que contrastar.
+    """
+    desglose = cand.get("desglose")
+    if not desglose:
+        return []
+
+    lineas = []
+    cobertura = desglose.get("cobertura") or {}
+    equivalencias = cobertura.get("por_similitud") or {}
+
+    def _con_equivalencia(requisito):
+        """Señala cuándo un requisito se dio por cubierto sin aparecer literal.
+
+        Es información que el reclutador merece: «Machine Learning» contado como
+        cubierto porque el CV dice «Deep Learning» es una decisión del sistema, y
+        quien entrevista tiene que poder revisarla o rebatirla.
+        """
+        equivalente = equivalencias.get(requisito)
+        if not equivalente:
+            return f"`{requisito}`"
+        habilidad = equivalente[0] if isinstance(equivalente, (tuple, list)) else equivalente
+        return f"`{requisito}` _(por «{habilidad}»)_"
+
+    cubiertos = cobertura.get("cubiertos") or []
+    faltantes = cobertura.get("faltantes") or []
+
+    if cubiertos:
+        lineas.append("✅ **Cumple:** " + ", ".join(_con_equivalencia(r) for r in cubiertos))
+    if faltantes:
+        lineas.append("❌ **No se evidencia:** " + ", ".join(f"`{r}`" for r in faltantes))
+    if not cubiertos and not faltantes:
+        lineas.append("➖ La vacante no declara habilidades obligatorias.")
+
+    academico = desglose.get("academico") or {}
+    if not academico.get("sin_requisitos") and academico.get("total"):
+        if academico.get("faltantes"):
+            lineas.append(
+                "🎓 **Formación:** no acredita "
+                + ", ".join(f"`{e}`" for e in academico["faltantes"])
+            )
+        else:
+            lineas.append("🎓 **Formación:** cumple lo exigido")
+
+    exigidos = desglose.get("anios_requeridos") or 0
+    tiene = desglose.get("anios_candidato") or 0
+    if exigidos:
+        marca = "📅" if tiene >= exigidos else "⚠️"
+        lineas.append(f"{marca} **Experiencia:** {tiene} años (la vacante pide {exigidos})")
+
+    return lineas
+
+
 def _detalle_de_la_puntuacion(cand: dict) -> str:
     """Redacta cómo se obtuvo el número, para poder defenderlo y no solo creérselo.
 
@@ -118,6 +186,18 @@ def render_dashboard_reclutador():
         st.subheader("Buscador Híbrido RAG & Nominal")
     with col_der:
         st.caption(f"👤 Conectado: **{username.upper()}**")
+        # Equivalente al «postular a otra vacante» del portal: devuelve la
+        # pantalla al estado inicial sin cerrar la sesión. Los resultados de una
+        # búsqueda persisten entre recargas de Streamlit, de modo que el
+        # reclutador arrastraba los de la consulta anterior mientras preparaba la
+        # siguiente. Se asignan valores vacíos en lugar de borrar las claves,
+        # porque el resto de la vista las lee directamente.
+        if st.button("🧹 Limpiar Pantalla", use_container_width=True):
+            st.session_state.resultados_busqueda = []
+            st.session_state.telemetria = None
+            st.session_state.vacante_creada = None
+            st.rerun()
+
         if st.button("🚪 Cerrar Sesión", use_container_width=True):
             st.session_state.jwt_token = None
             st.rerun()
@@ -344,18 +424,23 @@ def render_dashboard_reclutador():
                     # El porcentaje solo es defendible si se puede desarmar. El
                     # motor ya redacta el desglose en una línea; hasta ahora se
                     # calculaba y se descartaba sin llegar a la pantalla.
-                    if cand.get('explicacion'):
+                    # Qué pide la vacante que esta persona cumple y qué no. Es lo
+                    # que sostiene la decisión de llamarla o descartarla, así que
+                    # va a la vista y no escondido tras un icono de ayuda.
+                    for linea in _resumen_para_reclutador(cand):
+                        st.markdown(
+                            f"<small>{linea}</small>", unsafe_allow_html=True
+                        )
+
+                    if not cand.get('desglose') and cand.get('explicacion'):
                         st.caption(f"🎯 {cand['explicacion']}")
 
-                    # En modo depuración, el desglose numérico va a la vista sin
-                    # necesidad de pasar por la ayuda emergente: es el dato que
-                    # hace falta para contrastar la escala durante una medición.
+                    # La aritmética queda para el modo depuración. Justifica la
+                    # escala ante un tribunal, pero al reclutador no le dice
+                    # nada que pueda usar.
                     if settings.DEBUG_MODE and cand.get('similitud_coseno') is not None:
-                        st.caption(
-                            f"🔬 coseno {cand['similitud_coseno']:.4f} · "
-                            f"línea base {cand['linea_base']:.4f} · "
-                            f"margen {cand['similitud_coseno'] - cand['linea_base']:+.4f}"
-                        )
+                        with st.expander("🔬 Detalle del cálculo", expanded=False):
+                            st.text(_detalle_de_la_puntuacion(cand))
 
                 with col2:
                     afinidad = cand.get('porcentaje_afinidad', 0)
@@ -374,7 +459,15 @@ def render_dashboard_reclutador():
                         st.metric(
                             label="Afinidad" if es_afinidad else "Similitud",
                             value=f"{afinidad}%",
-                            help=_detalle_de_la_puntuacion(cand) or None
+                            help=(
+                                "Pondera sobre todo cuántos requisitos de la vacante "
+                                "cumple el candidato, y ajusta por formación y años de "
+                                "experiencia. El detalle está junto a su perfil."
+                                if es_afinidad else
+                                "Parecido general entre el perfil y lo que ha escrito, "
+                                "sin requisitos que contrastar. Busque dentro de un silo "
+                                "de vacante o use /match: para obtener la afinidad."
+                            )
                         )
                     else:
                         st.metric(label="Match", value="Léxico")
