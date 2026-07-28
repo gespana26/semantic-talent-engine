@@ -78,10 +78,15 @@ def render_dashboard_reclutador():
                     if st.button(f"🏢 {nombre_amigable}", key=f"btn_silo_{silo['nombre']}", use_container_width=True):
                         modal_detalle_vacante(silo['nombre'])
                     
-                    if silo['dias'] == "∞":
+                    # `expirada` lo decide el dominio. Deducirlo aquí de
+                    # `dias == 0` confundía dos estados distintos: una vacante
+                    # que cierra hoy sigue admitiendo postulaciones.
+                    if silo.get('expirada'):
+                        st.error("⚠️ Expirada")
+                    elif silo['dias'] == "∞":
                         st.caption("⏳ Abierta (Sin límite)")
                     elif silo['dias'] == 0:
-                        st.error("⚠️ Expirada")
+                        st.caption("⏳ Último día")
                     else:
                         st.caption(f"⏳ {silo['dias']} días restantes")
                     

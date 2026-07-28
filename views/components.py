@@ -1,38 +1,22 @@
-from datetime import datetime
-
 import chromadb
 import streamlit as st
 
 from config import settings
+from core.vacancy_catalog import obtener_silos_del_reclutador
 
 
 def obtener_resumen_silos():
-    """Extrae las colecciones activas y calcula los días restantes de vigencia."""
-    datos_silos = []
-    try:
-        cliente = chromadb.PersistentClient(path=settings.CHROMA_DB_PATH)
-        silos = [col for col in cliente.list_collections() if col.name != "talento-global-empresa"]
-        
-        for col in silos:
-            dias_restantes = "∞"
-            try:
-                resultados = col.get(include=["metadatas"])
-                if resultados and resultados.get("metadatas"):
-                    for meta in resultados["metadatas"]:
-                        if meta and "timestamp_expiracion" in meta:
-                            fecha_exp_str = str(meta["timestamp_expiracion"])
-                            if len(fecha_exp_str) == 8:
-                                f_exp = datetime.strptime(fecha_exp_str, "%Y%m%d")
-                                f_hoy = datetime.now()
-                                dias = (f_exp - f_hoy).days
-                                dias_restantes = max(0, dias)
-                            break
-            except Exception:
-                pass
-            datos_silos.append({"nombre": col.name, "dias": dias_restantes})
-    except Exception:
-        pass 
-    return datos_silos
+    """Silos y su vigencia para el panel lateral del reclutador.
+
+    Delega en `core.vacancy_catalog`. Antes calculaba lo suyo por su cuenta,
+    recorriendo la colección entera —con el `raw_json` de cada candidato— para
+    leer un único registro que se direcciona por clave, y repitiéndolo en cada
+    repintado de Streamlit. Con la lógica en el dominio, esta capa vuelve a
+    limitarse a presentar, y la diferencia de criterio frente al portal pasa a
+    ser una decisión escrita en un sitio en lugar de una divergencia accidental
+    entre dos ficheros.
+    """
+    return obtener_silos_del_reclutador()
 
 def render_grilla_perfil(json_data):
     """Componente visual estandarizado para mostrar el perfil extraído por la IA."""
