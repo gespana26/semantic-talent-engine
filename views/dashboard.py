@@ -8,7 +8,12 @@ from config.settings import clean_collection_name
 from core.orchestrator import VacancyOrchestrator
 from core.query_translator import QueryTranslator
 from core.search_engine import CVSearchEngine
-from core.security import generar_token, validar_token, verificar_credenciales
+from core.security import (
+    generar_token,
+    minutos_de_bloqueo,
+    validar_token,
+    verificar_credenciales,
+)
 from models.ai_provider import LocalOllamaProvider, OpenAIProvider
 from views.components import modal_detalle_vacante, modal_perfil_completo, obtener_resumen_silos
 
@@ -31,9 +36,17 @@ def render_dashboard_reclutador():
                 submit_login = st.form_submit_button("Ingresar al Dashboard", type="primary", use_container_width=True)
 
                 if submit_login:
-                    if verificar_credenciales(user_input, pass_input):
+                    # El bloqueo se comunica como bloqueo. Presentarlo como
+                    # "credenciales incorrectas" deja al reclutador legítimo
+                    # probando una contraseña que ya es la correcta.
+                    espera = minutos_de_bloqueo(user_input)
+                    if espera:
+                        st.error(
+                            f"⏳ Demasiados intentos fallidos. Vuelva a intentarlo en {espera} min."
+                        )
+                    elif verificar_credenciales(user_input, pass_input):
                         st.session_state.jwt_token = generar_token(user_input)
-                        st.rerun() 
+                        st.rerun()
                     else:
                         st.error("❌ Credenciales incorrectas. Intente nuevamente.")
         return 
@@ -199,7 +212,18 @@ def render_dashboard_reclutador():
                         st.warning("No se encontró el perfil de la vacante para el auto-match.")
                         st.stop()
                         
-                    candidatos = buscador.search_candidates(query_text=texto_vacante, limit=10)
+                    # La vacante estructurada es lo que habilita la afinidad por
+                    # componentes. Sin ella el motor devuelve solo similitud y el
+                    # dashboard la mostraba bajo la etiqueta «Afinidad», que es
+                    # otra magnitud. Es la misma llamada que ya hace
+                    # `core/auto_match.py`, de modo que la alerta al reclutador y
+                    # lo que el reclutador ve en pantalla vuelven a ser el mismo
+                    # número.
+                    candidatos = buscador.search_candidates(
+                        query_text=texto_vacante,
+                        limit=10,
+                        vacante=buscador.obtener_vacante_estructurada()
+                    )
                     st.session_state.resultados_busqueda = [c for c in candidatos if c.get('nombre')]
                     st.success(f"Auto-Match ejecutado contra el perfil de la vacante '{silo_objetivo}'.")
 
@@ -214,8 +238,17 @@ def render_dashboard_reclutador():
                         }
                     
                     filtro = query_estructurada.where_filter if query_estructurada.where_filter else None
+                    # En un silo la búsqueda libre sigue teniendo requisitos que
+                    # verificar: el reclutador acota sobre los postulantes de una
+                    # vacante concreta. En la bolsa global no hay
+                    # `VACANTE_PRINCIPAL`, así que esto devuelve `{}` y el motor
+                    # cae por sí solo a similitud. La distinción no se codifica
+                    # aquí: la resuelve el dato.
                     candidatos = buscador.search_candidates(
-                        query_text=query_estructurada.query_text_conceptual, limit=5, where_filter=filtro
+                        query_text=query_estructurada.query_text_conceptual,
+                        limit=5,
+                        where_filter=filtro,
+                        vacante=buscador.obtener_vacante_estructurada()
                     )
                     st.session_state.resultados_busqueda = [c for c in candidatos if c.get('nombre')]
                     st.success("Búsqueda semántica híbrida completada.")
@@ -245,11 +278,25 @@ def render_dashboard_reclutador():
                     json_data = cand.get('perfil_completo_json', {})
                     extracto = json_data.get('perfil_profesional', 'Extracto no disponible')[:150] + "..."
                     st.write(f"**Extracto:** {extracto}")
-                
+
+                    # El porcentaje solo es defendible si se puede desarmar. El
+                    # motor ya redacta el desglose en una línea; hasta ahora se
+                    # calculaba y se descartaba sin llegar a la pantalla.
+                    if cand.get('explicacion'):
+                        st.caption(f"🎯 {cand['explicacion']}")
+
                 with col2:
                     afinidad = cand.get('porcentaje_afinidad', 0)
                     if isinstance(afinidad, (int, float)):
-                        st.metric(label="Afinidad", value=f"{afinidad}%")
+                        # La etiqueta sigue al tipo de puntuación que declara el
+                        # motor. Afinidad compuesta y similitud de perfil miden
+                        # cosas distintas, y rotular ambas como «Afinidad» era
+                        # exactamente lo que hacía irreproducible el número.
+                        es_afinidad = cand.get('tipo_puntuacion') == "afinidad"
+                        st.metric(
+                            label="Afinidad" if es_afinidad else "Similitud",
+                            value=f"{afinidad}%"
+                        )
                     else:
                         st.metric(label="Match", value="Léxico")
                         
