@@ -7,9 +7,9 @@ Los números de línea se extrajeron del código, no de memoria, y corresponden 
 estado del árbol tras aplicar todos los grupos. Rama de trabajo:
 `fix/defectos-criticos`. **Nada se ha enviado a GitHub.**
 
-Estado de la suite: **327 passed, 5 skipped** en un entorno sin `chromadb`,
+Estado de la suite: **361 passed, 6 skipped** en un entorno sin `chromadb`,
 `fitz`, `ollama`, `openai` ni `streamlit` instalados. En un entorno completo, los
-5 saltados también se ejecutan.
+6 saltados también se ejecutan.
 
 ---
 
@@ -17,31 +17,60 @@ Estado de la suite: **327 passed, 5 skipped** en un entorno sin `chromadb`,
 
 | Ref | Defecto | Estado | Dónde revisarlo |
 |---|---|---|---|
-| 2.1 | La afinidad compuesta nunca se calcula en el dashboard | ✅ corregido | `views/dashboard.py:231, 257, 292, 301` |
+| 2.1 | La afinidad compuesta nunca se calcula en el dashboard | ✅ corregido | `views/dashboard.py:231, 257, 292, 310` |
 | 2.2 | Las vistas rompen el composition root | ✅ corregido | `views/portal.py:8, 99, 209` · `views/dashboard.py:7, 126, 165` |
 | 2.3 | `load_dotenv()` sin `override=True` | ✅ corregido | `config/settings.py:16` |
 | 2.4 | Clave de OpenAI por defecto que enmascara el error | ✅ corregido | `config/settings.py:35` · `config/providers.py:41-102` |
 | 2.5 | Saneo de JSON duplicado | ✅ corregido | `models/ai_provider.py:232, 266` |
 | 2.6 | PDFs huérfanos | ✅ corregido | `core/orchestrator.py:19-53, 173, 237` · `views/portal.py:31` |
 | 2.7 | Catálogo de vacantes duplicado | ✅ corregido | `views/components.py:18` · `core/vacancy_catalog.py:20-103` |
-| 2.8 | El corte de pertinencia encoge el resultado | ❌ **falso positivo** | ver §4 |
+| 2.8 | El corte de pertinencia encoge el resultado | ❌ **falso positivo** | ver §5 |
 | 2.9 | `core/security.py`: seis problemas | ✅ reescrito | `core/security.py` completo |
 | 2.10 | `DEBUG_MODE` por defecto `True` | ✅ corregido | `config/settings.py:160` |
 | 2.11 | Traductor sin regla anti-inyección | ✅ corregido | `core/query_translator.py:77, 83-103, 105` |
 | 2.12 | Filtro léxico por substring | ✅ corregido | `core/search_engine.py:41-77, 111, 121` |
 | 2.13 | Tests no herméticos | ✅ corregido | `core/store_client.py` + 6 módulos |
 
-**Defectos encontrados que no estaban en el documento**, los tres corregidos:
+**Defectos encontrados que no estaban en el documento**, los cuatro corregidos:
 
 | Ref | Defecto | Dónde |
 |---|---|---|
 | N1 | Usuario `admin` / `admin123` escrito en el código | `core/security.py:155` |
 | N2 | `JWT_SECRET_KEY` sin longitud mínima (RFC 7518 §3.2) | `core/security.py:57, 69` |
 | N3 | El último día de vigencia de la vacante se perdía | `core/vacancy_catalog.py:45` |
+| N4 | **Todos los resultados de búsqueda se rotulaban «Léxico»** | `core/baseline.py:87, 108, 120` · `views/dashboard.py:303` |
+
+N4 es el más visible de los cuatro: el reclutador **nunca** llegaba a ver el
+porcentaje de afinidad. Detalle en §6.
 
 ---
 
-## 2. Cambios por fichero y línea
+## 2. Ficheros `.py` nuevos: **7**
+
+Uno de producción y seis de pruebas. El desequilibrio no es casual: casi todas
+las correcciones consistieron en **quitar** código duplicado o mal ubicado, no en
+añadirlo, de modo que el volumen nuevo está donde antes no había nada.
+
+| Fichero | Líneas | Por qué existe |
+|---|---:|---|
+| `core/store_client.py` | 58 | **El único de producción.** Seis módulos del dominio importaban `chromadb` en su cabecera y construían cada uno su cliente. Concentrar aquí la construcción, con import diferido, hace que importar un módulo deje de arrastrar el almacén —lo que devuelve la hermeticidad a la suite— y reduce a uno los sitios que nombran a ChromaDB, que es lo que abarata la Fase 0. |
+| `tests/unit/test_security.py` | 226 | `core/security.py` se reescribió entero y no tenía ni un test. Incluye dos regresiones escritas **contra los secretos concretos** que llegaron a estar en el código: si alguien reintroduce `admin123` o la clave de firma publicada, la suite lo dice. |
+| `tests/unit/test_vacancy_catalog.py` | 231 | El módulo no tenía cobertura. Dos de sus tests miden el defecto de coste **contando lecturas** sobre un doble de colección: `lecturas_completas == 0` es la afirmación de que ya no se recorre nada entero. Aquí apareció N3. |
+| `tests/unit/test_filtro_lexico.py` | 170 | El emparejado por palabra completa necesitaba cubrir los casos que lo motivan («R», «Go», «SQL», «Java») y los que una solución ingenua con `\b` rompería («C++», «C#», «.NET»). |
+| `tests/unit/test_pdf_pendientes.py` | 167 | El ciclo de vida del PDF entre extracción y confirmación no se probaba en ningún sitio. Fija la invariante de que `storage/cv_files/` solo contiene postulaciones confirmadas. |
+| `tests/unit/test_tipos_numericos.py` | 147 | Fija la conversión a `float` en el borde del proveedor de embeddings. Prueba `float32` y `float64` en paralelo porque **el que rompe es justo el que no salta a la vista**. |
+| `tests/unit/test_query_translator_seguridad.py` | 127 | La única superficie LLM sin regla anti-inyección. Cubre el saneo de la entrada, que es la mitad mecánica y por tanto verificable de la defensa. |
+
+**Total: 1.126 líneas nuevas, de las que 1.068 son pruebas.** Los seis ficheros de
+test suman **100 casos**.
+
+Ninguno de los siete se creó por gusto de añadir estructura: cada uno cubre un
+módulo que **no tenía ninguna prueba** o una propiedad que ningún test existente
+afirmaba.
+
+---
+
+## 3. Cambios por fichero y línea
 
 ### `config/settings.py`
 
@@ -127,6 +156,15 @@ Estado de la suite: **327 passed, 5 skipped** en un entorno sin `chromadb`,
 |---|---|---|
 | 33 | 2.13 | `fitz` y `PIL` se importan dentro del método que los usa. |
 
+### `core/baseline.py` · `core/requirements_coverage.py`
+
+| Fichero y línea | Ref | Qué cambió |
+|---|---|---|
+| `baseline.py:87` | N4 | `coseno()` devuelve `float` de Python. |
+| `baseline.py:108` | N4 | `calcular_linea_base()` ídem. |
+| `baseline.py:120` | N4 | `normalizar_similitud()` ídem. |
+| `requirements_coverage.py:85` | N4 | `_coseno()` ídem, la segunda implementación del coseno. |
+
 ### `core/database.py`, `core/auto_match.py`, `core/orchestrator.py`
 
 | Fichero | Línea | Ref | Qué cambió |
@@ -145,7 +183,8 @@ Estado de la suite: **327 passed, 5 skipped** en un entorno sin `chromadb`,
 | 126, 165 | 2.2 | Los dos `if AI_PROVIDER_TYPE` pasan a `get_ai_provider()`. |
 | 231, 257 | 2.1 | `/match:` y búsqueda libre pasan `vacante=`. |
 | 292 | 2.1 | Muestra la línea de `explicar()`, que se calculaba y se tiraba. |
-| 301 | 2.1 | La etiqueta sigue a `tipo_puntuacion`: «Afinidad» o «Similitud». |
+| 2 · 303 | N4 | `numbers.Real` en lugar de `(int, float)`, excluyendo `bool`. |
+| 310 | 2.1 | La etiqueta sigue a `tipo_puntuacion`: «Afinidad» o «Similitud». |
 
 ### `views/portal.py`
 
@@ -179,16 +218,18 @@ Estado de la suite: **327 passed, 5 skipped** en un entorno sin `chromadb`,
 
 ---
 
-## 3. Tests
+## 4. Tests
 
-**Ficheros nuevos** (63 tests):
+**Ficheros nuevos** (100 tests):
 
 | Fichero | Tests | Cubre |
 |---|---|---|
 | `tests/unit/test_security.py` | 19 | 2.9, N1, N2. Dos regresiones escritas contra los secretos concretos que llegaron a estar en el código. |
 | `tests/unit/test_filtro_lexico.py` | 22 | 2.12. «R», «Go», «SQL», «Java» y los nombres con símbolos. |
-| `tests/unit/test_vacancy_catalog.py` | 16 | 2.7, N3. Dos miden el coste contando lecturas sobre un doble. |
+| `tests/unit/test_vacancy_catalog.py` | 15 | 2.7, N3. Dos miden el coste contando lecturas sobre un doble. |
 | `tests/unit/test_query_translator_seguridad.py` | 10 | 2.11. Saneo y forma de lo que llega al modelo. |
+| `tests/unit/test_pdf_pendientes.py` | 15 | 2.6. Ciclo de vida del PDF entre extracción y confirmación. |
+| `tests/unit/test_tipos_numericos.py` | 19 | N4. Conversión a `float` en el borde del proveedor de embeddings. |
 
 **Ficheros modificados**:
 
@@ -202,7 +243,7 @@ Estado de la suite: **327 passed, 5 skipped** en un entorno sin `chromadb`,
 
 ---
 
-## 4. Correcciones al documento de traspaso
+## 5. Correcciones al documento de traspaso
 
 Tres afirmaciones de `ESTADO_PROYECTO.md` no se sostienen al contrastarlas.
 
@@ -228,7 +269,45 @@ que sí faltaba es que la diferencia con el portal estuviera decidida por alguie
 
 ---
 
-## 5. Defecto 2.6 — PDFs huérfanos · corregido
+## 6. Defecto N4 — «Léxico» en todos los resultados · corregido
+
+El más visible de los cuatro defectos no documentados, y el que más daño hacía al
+argumento de la memoria: **el reclutador nunca llegaba a ver un porcentaje de
+afinidad**. El motor lo calculaba correctamente; la interfaz lo descartaba.
+
+### La causa no estaba en el cálculo, estaba en el tipo
+
+`OllamaEmbeddingFunction` devuelve arrays de NumPy en **`float32`**. Ese tipo se
+propagaba por toda la aritmética —línea base, similitud normalizada, porcentaje
+final— y `round()` lo conserva. La vista decidía si tenía un número que pintar
+con `isinstance(valor, (int, float))`, y **`np.float32` no es subclase de
+`float`**. Al fallar la comprobación caía a la rama de respaldo y rotulaba
+«Léxico».
+
+**Lo que lo hace traicionero:** `np.float64` **sí** es subclase de `float`. El
+mismo código funciona o falla según lo que devuelva el servicio de embeddings,
+sin que cambie una línea. Es la clase de defecto que no se reproduce en el
+portátil de quien lo escribió.
+
+Es **preexistente**: la comprobación de tipo estrecha ya estaba antes de esta
+tanda de correcciones.
+
+### El arreglo, en dos capas
+
+| Capa | Qué se hizo | Por qué |
+|---|---|---|
+| **Origen** — `core/baseline.py:87, 108, 120` y `core/requirements_coverage.py:85` | Convertir a `float` de Python | El punto donde el vector se reduce a un escalar es el borde natural. El tipo del proveedor de embeddings no tiene por qué viajar al resto del sistema. |
+| **Presentación** — `views/dashboard.py:303` | `numbers.Real` en lugar de `(int, float)` | Cubre cualquier tipo numérico. Se excluye `bool` explícitamente: es subclase de `int`, y un `True` en el porcentaje sería un error, no un cero. |
+
+La primera capa resuelve el problema. La segunda impide que vuelva por otra vía
+—otro proveedor de embeddings, otra biblioteca de álgebra— sin que nadie se
+entere.
+
+Cubierto por `tests/unit/test_tipos_numericos.py`, 19 casos.
+
+---
+
+## 7. Defecto 2.6 — PDFs huérfanos · corregido
 
 **No tenía nada que ver con documentación.** Eran ficheros PDF sueltos en
 `storage/cv_files/` del disco duro.
@@ -266,11 +345,11 @@ postulaciones confirmadas**. Y si alguien cierra la pestaña sin tocar nada, lo
 que queda es un temporal del sistema operativo —que el propio SO recicla— en vez
 de un residuo permanente de la aplicación.
 
-Cubierto por `tests/unit/test_pdf_pendientes.py`, 15 tests.
+Cubierto por `tests/unit/test_pdf_pendientes.py`, 15 casos.
 
 ---
 
-## 6. Lo que queda abierto
+## 8. Lo que queda abierto
 
 ### 2.13 — Cobertura de `views/` y flujo end-to-end
 
