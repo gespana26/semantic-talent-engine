@@ -39,3 +39,19 @@ storage/
 *.zip
 *.db
 !requirements-dev.txt
+
+# --- Documentacion de trabajo: no forma parte del repositorio publicado ---
+# Solo README.md acompana al codigo. El resto -analisis, planes, traspaso,
+# borradores de la memoria- vive en local.
+*.md
+!README.md
+*.docx
+*.doc
+*.odt
+*.pptx
+
+# Ficheros de bloqueo que dejan LibreOffice y Word al abrir un documento
+.~lock.*#
+
+# Script auxiliar de esta sesion
+commit_local.ps1
