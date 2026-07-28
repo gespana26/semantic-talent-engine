@@ -24,6 +24,61 @@ from views.components import modal_detalle_vacante, modal_perfil_completo, obten
 # obligara a encontrarlos todos.
 
 
+def _detalle_de_la_puntuacion(cand: dict) -> str:
+    """Redacta cómo se obtuvo el número, para poder defenderlo y no solo creérselo.
+
+    Se muestra como ayuda emergente del indicador: el reclutador que solo quiere
+    el porcentaje no la ve, y quien necesita justificarlo la tiene a un paso.
+
+    La pregunta que responde es concreta y recurrente: por qué el mejor resultado
+    de una búsqueda puede ser un 25 %. La escala no arranca en cero teórico sino
+    en la **línea base medida** —la similitud que obtiene un perfil ajeno frente
+    a esa misma consulta, en torno a 0,70—, de modo que el porcentaje expresa
+    cuánto destaca el candidato sobre ese suelo real y no el coseno en bruto.
+    """
+    coseno = cand.get("similitud_coseno")
+    base = cand.get("linea_base")
+    if coseno is None or base is None:
+        return ""
+
+    lineas = [
+        f"Coseno crudo: {coseno:.4f}",
+        f"Línea base medida para esta consulta: {base:.4f}",
+        f"Normalizado: ({coseno:.4f} − {base:.4f}) / (1 − {base:.4f})"
+        f" = {cand.get('similitud_normalizada', 0):.2f} %",
+        "",
+        "La línea base es la similitud que obtiene un perfil manifiestamente "
+        "ajeno frente a esta misma consulta. Se resta porque el coseno entre dos "
+        "textos profesionales sin relación no es 0, sino ~0,68: sin descontarla, "
+        "cualquier candidato arrancaría en torno al 84 %.",
+    ]
+
+    desglose = cand.get("desglose")
+    if desglose:
+        cobertura = desglose["cobertura"]
+        lineas += [
+            "",
+            f"Afinidad = ({settings.PESO_COBERTURA:g} × cobertura "
+            f"+ {settings.PESO_SIMILITUD:g} × similitud) × experiencia × profesión",
+            f"  cobertura de habilidades: {len(cobertura['cubiertos'])}/{cobertura['total']}"
+            f" = {cobertura['ratio']:.2f}",
+            f"  factor experiencia: {desglose['factor_experiencia']}",
+            f"  factor profesión:   {desglose['factor_profesion']}",
+        ]
+    else:
+        lineas += [
+            "",
+            "Sin vacante estructurada no hay cobertura de habilidades que medir, "
+            "así que este número es solo similitud de perfil: la señal más débil "
+            "de las que usa el sistema, y la que pesa un "
+            f"{settings.PESO_SIMILITUD:g} en la afinidad compuesta. Para obtener "
+            "la afinidad completa, busque dentro de un silo de vacante o use "
+            "el comando /match:.",
+        ]
+
+    return "\n".join(lineas)
+
+
 def render_dashboard_reclutador():
     """Renderiza el panel de búsqueda avanzado, protegiéndolo con autenticación JWT."""
     # 🔒 1. VERIFICACIÓN DE SEGURIDAD (STATELESS JWT)
@@ -292,6 +347,16 @@ def render_dashboard_reclutador():
                     if cand.get('explicacion'):
                         st.caption(f"🎯 {cand['explicacion']}")
 
+                    # En modo depuración, el desglose numérico va a la vista sin
+                    # necesidad de pasar por la ayuda emergente: es el dato que
+                    # hace falta para contrastar la escala durante una medición.
+                    if settings.DEBUG_MODE and cand.get('similitud_coseno') is not None:
+                        st.caption(
+                            f"🔬 coseno {cand['similitud_coseno']:.4f} · "
+                            f"línea base {cand['linea_base']:.4f} · "
+                            f"margen {cand['similitud_coseno'] - cand['linea_base']:+.4f}"
+                        )
+
                 with col2:
                     afinidad = cand.get('porcentaje_afinidad', 0)
                     # `numbers.Real` y no `(int, float)`. La comprobación estrecha
@@ -308,7 +373,8 @@ def render_dashboard_reclutador():
                         es_afinidad = cand.get('tipo_puntuacion') == "afinidad"
                         st.metric(
                             label="Afinidad" if es_afinidad else "Similitud",
-                            value=f"{afinidad}%"
+                            value=f"{afinidad}%",
+                            help=_detalle_de_la_puntuacion(cand) or None
                         )
                     else:
                         st.metric(label="Match", value="Léxico")

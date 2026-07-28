@@ -398,6 +398,14 @@ class CVSearchEngine:
                 continue
 
             normalizada = baseline.normalizar_similitud(similitud, base)
+            # El coseno crudo se conserva junto a la línea base y al valor
+            # normalizado. Los tres juntos permiten reconstruir la operación
+            # —(coseno − base) / (1 − base)— y por tanto defender el porcentaje
+            # en lugar de tener que creérselo. Hasta ahora el coseno se
+            # calculaba y se descartaba en esta misma línea, que es justo el dato
+            # que hace falta para explicar por qué un 25 % puede ser el mejor
+            # resultado de la búsqueda.
+            candidato["similitud_coseno"] = round(similitud, 4)
             candidato["similitud_normalizada"] = round(normalizada * 100, 2)
             candidato["linea_base"] = round(base, 4)
             puntuados.append(candidato)
