@@ -117,6 +117,106 @@ def test_anadir_un_proveedor_es_una_clase_y_una_linea() -> None:
         del providers.PROVEEDORES["prueba"]
 
 
+# ---------------------------------------------------------------------------
+# Requisitos de configuración del proveedor
+# ---------------------------------------------------------------------------
+
+
+def test_openai_sin_clave_falla_al_elegir_el_proveedor(monkeypatch) -> None:
+    """El fallo se adelanta al momento de decidir, en vez de aflorar en la extracción."""
+    from config import providers, settings
+
+    monkeypatch.setattr(settings, "OPENAI_API_KEY", "")
+    with pytest.raises(ValueError) as exc:
+        providers.get_ai_provider("openai")
+
+    assert "OPENAI_API_KEY" in str(exc.value)
+
+
+def test_el_mensaje_ofrece_la_alternativa_local(monkeypatch) -> None:
+    """Un error de configuración que no dice cómo salir del paso cuesta una sesión."""
+    from config import providers, settings
+
+    monkeypatch.setattr(settings, "OPENAI_API_KEY", "   ")
+    with pytest.raises(ValueError) as exc:
+        providers.verificar_configuracion() if settings.AI_PROVIDER_TYPE == "openai" \
+            else providers.get_ai_provider("openai")
+
+    assert "ollama" in str(exc.value).lower()
+
+
+def test_ollama_no_exige_credenciales(monkeypatch) -> None:
+    """El proveedor local no declara requisitos: no puede fallar por falta de clave."""
+    from config import providers, settings
+
+    monkeypatch.setattr(settings, "OPENAI_API_KEY", "")
+    monkeypatch.setattr(settings, "AI_PROVIDER_TYPE", "ollama")
+    providers.verificar_configuracion()
+
+
+def test_verificar_configuracion_sigue_al_proveedor_declarado(monkeypatch) -> None:
+    """Comprueba lo que exige el proveedor configurado, no todos los posibles."""
+    from config import providers, settings
+
+    monkeypatch.setattr(settings, "AI_PROVIDER_TYPE", "openai")
+    monkeypatch.setattr(settings, "OPENAI_API_KEY", "")
+    with pytest.raises(ValueError):
+        providers.verificar_configuracion()
+
+    monkeypatch.setattr(settings, "OPENAI_API_KEY", "sk-una-clave-cualquiera")
+    providers.verificar_configuracion()
+
+
+# ---------------------------------------------------------------------------
+# Las vistas no deciden
+# ---------------------------------------------------------------------------
+
+
+def test_ninguna_vista_decide_el_proveedor() -> None:
+    """Regresión de 2.2: el `if AI_PROVIDER_TYPE` volvía a aparecer en `views/`.
+
+    `config/providers.py` existe para que la elección viva en un solo sitio, y su
+    docstring lo declara. Las vistas lo reintroducían en tres puntos, con el
+    agravante de que devolvían `None` ante un valor desconocido: el fallo afloraba
+    como `AttributeError: 'NoneType'` en mitad de la extracción en lugar del
+    `ValueError` explícito del composition root.
+
+    Se analiza el **árbol sintáctico** y no el texto del fichero. Un `grep` sobre
+    el fuente también encuentra estos nombres dentro de un comentario que explica
+    por qué se quitaron, y un test que obliga a no documentar lo que se corrigió
+    empuja justo en la dirección contraria a la que este proyecto quiere.
+    """
+    import ast
+    from pathlib import Path
+
+    PROHIBIDOS = {"OpenAIProvider", "LocalOllamaProvider"}
+    vistas = Path(__file__).resolve().parents[2] / "views"
+
+    for fichero in sorted(vistas.glob("*.py")):
+        arbol = ast.parse(fichero.read_text(encoding="utf-8"))
+        importados, usados, atributos = set(), set(), set()
+
+        for nodo in ast.walk(arbol):
+            if isinstance(nodo, (ast.Import, ast.ImportFrom)):
+                importados.update(alias.name for alias in nodo.names)
+            elif isinstance(nodo, ast.Name):
+                usados.add(nodo.id)
+            elif isinstance(nodo, ast.Attribute):
+                atributos.add(nodo.attr)
+
+        assert not (PROHIBIDOS & importados), (
+            f"{fichero.name} importa un proveedor concreto: "
+            f"{sorted(PROHIBIDOS & importados)}"
+        )
+        assert not (PROHIBIDOS & usados), (
+            f"{fichero.name} instancia un proveedor concreto: "
+            f"{sorted(PROHIBIDOS & usados)}"
+        )
+        assert "AI_PROVIDER_TYPE" not in atributos | usados, (
+            f"{fichero.name} vuelve a ramificar sobre AI_PROVIDER_TYPE."
+        )
+
+
 def test_el_traductor_acepta_cualquier_proveedor_inyectado() -> None:
     """El traductor era el único punto de `core/` que sabía con quién hablaba."""
     from core.query_translator import QueryTranslator

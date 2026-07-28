@@ -4,6 +4,7 @@ import os
 import streamlit as st
 
 from config import settings
+from config.providers import get_ai_provider
 from config.settings import clean_collection_name
 from core.orchestrator import VacancyOrchestrator
 from core.query_translator import QueryTranslator
@@ -14,8 +15,12 @@ from core.security import (
     validar_token,
     verificar_credenciales,
 )
-from models.ai_provider import LocalOllamaProvider, OpenAIProvider
 from views.components import modal_detalle_vacante, modal_perfil_completo, obtener_resumen_silos
+
+# La vista no importa ninguna implementación concreta de proveedor. Los dos
+# `if AI_PROVIDER_TYPE` que había aquí reintroducían la decisión que
+# `config/providers.py` centraliza, y hacían que añadir un tercer proveedor
+# obligara a encontrarlos todos.
 
 
 def render_dashboard_reclutador():
@@ -113,9 +118,7 @@ def render_dashboard_reclutador():
                         with open(ruta_temp_vacante, "wb") as f:
                             f.write(archivo_vacante.getbuffer())
 
-                        tipo_proveedor = settings.AI_PROVIDER_TYPE.lower()
-                        proveedor_ia = OpenAIProvider() if tipo_proveedor == "openai" else LocalOllamaProvider()
-                        orquestador = VacancyOrchestrator(ai_provider=proveedor_ia)
+                        orquestador = VacancyOrchestrator(ai_provider=get_ai_provider())
                         resultado = orquestador.process_and_register_vacancy(pdf_path=ruta_temp_vacante)
 
                         if resultado.get("status") == "success":
@@ -154,9 +157,7 @@ def render_dashboard_reclutador():
                 st.stop()
                 
             with st.spinner("Creando vacante y configurando silo..."):
-                tipo_proveedor = settings.AI_PROVIDER_TYPE.lower()
-                proveedor_ia = OpenAIProvider() if tipo_proveedor == "openai" else LocalOllamaProvider()
-                orquestador = VacancyOrchestrator(ai_provider=proveedor_ia)
+                orquestador = VacancyOrchestrator(ai_provider=get_ai_provider())
                 resultado = orquestador.process_and_register_vacancy(raw_text=texto_vacante)
             
             if resultado.get("status") == "success":

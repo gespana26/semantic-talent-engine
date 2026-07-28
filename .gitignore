@@ -44,7 +44,9 @@ storage/
 # Solo README.md acompana al codigo. El resto -analisis, planes, traspaso,
 # borradores de la memoria- vive en local.
 *.md
-!README.md
+# Anclado a la raiz con la barra inicial: `!README.md` sin ella casa a cualquier
+# profundidad y rescataba tambien tests/README.md, que acabamos de retirar.
+!/README.md
 *.docx
 *.doc
 *.odt

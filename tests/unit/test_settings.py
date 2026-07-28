@@ -71,16 +71,28 @@ def test_default_model_name(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.MODEL_NAME == "gpt-4o-mini"
 
 
-def test_default_openai_api_key_is_placeholder(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_openai_api_key_has_no_placeholder_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Regresión: el relleno "placeholder_key_clean" enmascaraba la falta de clave.
+
+    Con ese valor el cliente de OpenAI se construía sin protestar y el fallo
+    reaparecía mucho después como un 401 genérico en mitad de la extracción. La
+    ausencia debe quedar vacía para que `config/providers.py` pueda detectarla.
+    """
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     settings = _load_settings(monkeypatch)
-    assert settings.OPENAI_API_KEY == "placeholder_key_clean"
+    assert settings.OPENAI_API_KEY == ""
+    assert "placeholder" not in settings.OPENAI_API_KEY
 
 
-def test_default_debug_mode_is_true(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_default_debug_mode_is_false(monkeypatch: pytest.MonkeyPatch) -> None:
+    """El defecto por omisión era `True`, contra el README y el .env.example.
+
+    No es cosmético: en modo depuración el dashboard expone la estructura interna
+    del QueryTranslator al reclutador.
+    """
     monkeypatch.delenv("DEBUG_MODE", raising=False)
     settings = _load_settings(monkeypatch)
-    assert settings.DEBUG_MODE is True
+    assert settings.DEBUG_MODE is False
 
 
 def test_static_infrastructure_paths_present(monkeypatch: pytest.MonkeyPatch) -> None:

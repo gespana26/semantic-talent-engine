@@ -6,8 +6,14 @@ import re
 
 from dotenv import load_dotenv
 
-# Cargar las variables del archivo .env local
-load_dotenv()
+# Cargar las variables del archivo .env local.
+#
+# `override=True` no es un detalle: sin el, `load_dotenv` respeta la variable que
+# ya existiera en el entorno del sistema y el .env NO gana. Se verifico
+# experimentalmente. Combinado con el cacheo de modulos, el sintoma era que
+# editar el .env con Streamlit levantado no surtia efecto y no habia forma de
+# saber por que: el fichero decia una cosa y el proceso usaba otra.
+load_dotenv(override=True)
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +26,13 @@ EMBEDDING_MODEL = "nomic-embed-text"
 # --- CONFIGURACION DINAMICA DESDE EL ENTORNO (.env) ---
 AI_PROVIDER_TYPE = os.getenv("AI_PROVIDER_TYPE", "openai")
 MODEL_NAME = os.getenv("MODEL_NAME", "gpt-4o-mini")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "placeholder_key_clean")
+# Sin valor por defecto. El anterior, "placeholder_key_clean", permitia construir
+# el cliente de OpenAI igualmente, de modo que la ausencia de clave no se
+# detectaba al arrancar sino que reaparecia mucho despues como "Fallo critico en
+# el procesamiento multimodal" o "Error en el motor de busqueda": dos mensajes
+# que no mencionan la causa. La validacion vive en `config/providers.py`, que es
+# donde se decide el proveedor y por tanto donde se sabe si la clave hace falta.
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 
 # --- CONFIGURACIÓN DE CORREO ELECTRÓNICO ---
 EMAIL_SENDER_USER = os.getenv("EMAIL_SENDER_USER")
@@ -141,8 +153,11 @@ LOGIN_MAX_INTENTOS = int(os.getenv("LOGIN_MAX_INTENTOS", "5"))
 LOGIN_BLOQUEO_MINUTOS = int(os.getenv("LOGIN_BLOQUEO_MINUTOS", "15"))
 
 # --- OBSERVABILIDAD DEL SISTEMA ---
-# Convertimos el string del .env a un booleano real
-DEBUG_MODE = os.getenv("DEBUG_MODE", "True").lower() in ("true", "1", "t")
+# Por defecto desactivado. Estaba en "True", contra lo que declaran el README y
+# el .env.example: tres fuentes diciendo cosas distintas sobre el mismo
+# interruptor. Y no es cosmetico: en modo depuracion el dashboard expone la
+# estructura interna del QueryTranslator al reclutador.
+DEBUG_MODE = os.getenv("DEBUG_MODE", "False").lower() in ("true", "1", "t")
 
 # --- OBSERVABILIDAD LLM (LANGFUSE) ---
 # Dual backend: self-hosted (http://localhost:3000) o cloud (https://cloud.langfuse.com).

@@ -5,22 +5,21 @@ import threading
 import streamlit as st
 
 from config import settings
+from config.providers import get_ai_provider
 from core.auto_match import evaluar_y_notificar
 from core.data_hygiene import email_valido, primer_dato_valido, telefono_valido
 from core.orchestrator import CandidateOrchestrator
 from core.vacancy_catalog import obtener_vacantes_publicas
-from models.ai_provider import LocalOllamaProvider, OpenAIProvider
 from views.components import render_grilla_perfil
 
-
-def _instanciar_proveedor():
-    """Selecciona la estrategia de inferencia declarada en la configuración."""
-    tipo_proveedor = settings.AI_PROVIDER_TYPE.lower()
-    if tipo_proveedor == "openai":
-        return OpenAIProvider()
-    if tipo_proveedor == "ollama":
-        return LocalOllamaProvider()
-    return None
+# La vista ya no importa `OpenAIProvider` ni `LocalOllamaProvider`: no conoce
+# ninguna implementación concreta, solo pide la configurada. `_instanciar_proveedor`
+# vivía aquí y reintroducía el `if AI_PROVIDER_TYPE` que `config/providers.py`
+# existe para eliminar. Además devolvía `None` ante un valor desconocido, y el
+# fallo afloraba tarde como `AttributeError: 'NoneType'` en mitad de la
+# extracción, en vez del `ValueError` explícito de `get_ai_provider()`. La
+# ingesta por CLI sí usaba la ruta correcta, así que el mismo pipeline se
+# comportaba distinto según se entrara por consola o por el navegador.
 
 
 def _reiniciar_postulacion():
@@ -97,7 +96,7 @@ def _render_fase_carga():
                 tmp.write(archivo_cv.getbuffer())
                 ruta_temporal = tmp.name
 
-            orquestador = CandidateOrchestrator(ai_provider=_instanciar_proveedor())
+            orquestador = CandidateOrchestrator(ai_provider=get_ai_provider())
             resultado = orquestador.extract_candidate(pdf_path=ruta_temporal)
         except Exception as e:
             st.error(f"Fallo crítico en el procesamiento multimodal: {e}")
@@ -207,7 +206,7 @@ def _render_fase_confirmacion():
 
     with st.spinner("Indexando tu perfil..."):
         try:
-            orquestador = CandidateOrchestrator(ai_provider=_instanciar_proveedor())
+            orquestador = CandidateOrchestrator(ai_provider=get_ai_provider())
             resultado = orquestador.register_candidate(
                 candidate_data=extraccion["candidate_data"],
                 ruta_persistente_pdf=extraccion["ruta_pdf_fisico"],
