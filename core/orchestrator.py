@@ -47,6 +47,68 @@ def persistir_pdf(ruta_pdf: str) -> str:
     return destino
 
 
+def describir_vacante(vacancy_json) -> str:
+    """Redacta una descripción legible a partir de los campos ya extraídos.
+
+    Es el **último recurso** cuando la oferta llega en PDF y no se puede leer su
+    texto: un documento escaneado sin capa de texto y sin OCR disponible. No es
+    lo que redactó el reclutador sino lo que el modelo entendió, y por eso se
+    marca como tal: el candidato tiene derecho a saber que está leyendo una
+    reconstrucción y no la oferta literal.
+
+    Preferimos esto a dejar la descripción vacía. Una vacante sin texto no se
+    puede evaluar: el candidato no sabe a qué se postula y el reclutador no ve
+    qué publicó.
+    """
+    def _lista(valores):
+        return ", ".join(str(v) for v in (valores or []) if str(v).strip())
+
+    secciones = [
+        f"[Descripción reconstruida a partir del documento, no es el texto original]",
+        "",
+        str(getattr(vacancy_json, "titulo_cargo", "") or "").strip(),
+        "",
+        str(getattr(vacancy_json, "perfil_general", "") or "").strip(),
+    ]
+
+    for etiqueta, valor in (
+        ("Formación requerida", _lista(getattr(vacancy_json, "estudios_requeridos", None))),
+        ("Experiencia mínima", f"{getattr(vacancy_json, 'experiencia_minima_anos', 0)} años"),
+        ("Habilidades técnicas", _lista(getattr(vacancy_json, "hard_skills", None))),
+        ("Competencias blandas", _lista(getattr(vacancy_json, "soft_skills", None))),
+        ("Rango salarial", str(getattr(vacancy_json, "rango_salarial", "") or "").strip()),
+    ):
+        if valor and valor != "No especificado":
+            secciones += ["", f"{etiqueta}: {valor}"]
+
+    return "\n".join(secciones).strip()
+
+
+def texto_de_la_oferta(pdf_path: str, image_paths: list, vacancy_json) -> str:
+    """Obtiene el texto de una oferta que llegó en PDF.
+
+    `store_vacancy` recibía `texto_original=raw_text`, que es `None` cuando la
+    vacante se sube como PDF. El campo caía entonces al literal «Texto original
+    no disponible», con dos consecuencias visibles: el visor del reclutador
+    mostraba ese texto en lugar de la oferta, y el portal del candidato —que
+    detecta el marcador y lo convierte en cadena vacía— presentaba la vacante
+    **sin descripción alguna**. Un mismo descuido en las dos caras del producto.
+
+    Se reutiliza la cascada texto-PDF → OCR que ya existe para los currículums en
+    `core.skill_verification`, en vez de inventar una segunda forma de leer un
+    PDF. Si tampoco por ahí sale texto, se recurre a la reconstrucción.
+    """
+    try:
+        texto, _canal = skill_verification.extraer_texto_documento(pdf_path, image_paths)
+    except Exception:
+        texto = ""
+
+    if texto and texto.strip():
+        return texto.strip()
+
+    return describir_vacante(vacancy_json)
+
+
 def descartar_extraccion(ruta_pdf: str) -> None:
     """Elimina la copia de trabajo de una postulación que no llegó a confirmarse.
 
@@ -72,8 +134,13 @@ class VacancyOrchestrator:
             if pdf_path:
                 image_paths = self.extractor.pdf_to_images(pdf_path)
                 vacancy_json = self.ai_provider.parse_vacancy(image_paths=image_paths)
+                # La oferta en PDF también tiene texto, y hay que ir a buscarlo:
+                # sin esto el campo quedaba con el marcador de ausencia y la
+                # vacante se publicaba sin descripción.
+                texto_oferta = texto_de_la_oferta(pdf_path, image_paths, vacancy_json)
             else:
                 vacancy_json = self.ai_provider.parse_vacancy(raw_text=raw_text)
+                texto_oferta = raw_text
 
             # --- GENERACIÓN ARITMÉTICA DE MARCAS DE TIEMPO (Query-Time TTL) ---
             fecha_actual = datetime.now()
@@ -116,10 +183,10 @@ class VacancyOrchestrator:
 
             # 📌 PASAMOS EL TEXTO ORIGINAL COMO EQUIPAJE OCULTO
             db_manager.store_vacancy(
-                vacancy_json, 
-                timestamp_creacion, 
+                vacancy_json,
+                timestamp_creacion,
                 timestamp_expiracion,
-                texto_original=raw_text 
+                texto_original=texto_oferta
             )
             
             # --- el orquestador devuelve el estado Y los datos extraídos ---
