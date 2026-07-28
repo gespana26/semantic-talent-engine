@@ -2,17 +2,59 @@
 
 import os
 import shutil
+import tempfile
 import threading
 import uuid  # Utiliza la biblioteca nativa estándar de Python
 from datetime import datetime, timedelta
 
-import chromadb
-
 from config import settings
-from core import skill_verification
+from core import skill_verification, store_client
 from core.database import CVVectorStoreManager
 from core.email_service import enviar_alerta_revision_cv
 from core.extractor import CVImageExtractor
+
+# Prefijo del directorio donde vive la copia de trabajo de una postulación que
+# todavía no se ha confirmado. Es lo que permite distinguir un PDF pendiente de
+# uno ya persistido sin llevar estado en ningún sitio: la ruta lo dice.
+PREFIJO_PENDIENTE = "cv_pendiente_"
+
+
+def _es_pendiente(ruta_pdf: str) -> bool:
+    """Indica si la ruta apunta al área temporal de postulaciones sin confirmar."""
+    if not ruta_pdf:
+        return False
+    return os.path.basename(os.path.dirname(ruta_pdf)).startswith(PREFIJO_PENDIENTE)
+
+
+def persistir_pdf(ruta_pdf: str) -> str:
+    """Traslada al almacén definitivo el PDF de una postulación confirmada.
+
+    Devuelve la ruta final, que es la que se indexa como `pdf_file_path`. **Es
+    idempotente**: si la ruta ya apunta al almacén —caso de una llamada repetida,
+    o del flujo de la CLI si algún día persistiera antes— se devuelve sin tocar
+    nada. La decisión de si hay que mover se lee de la propia ruta, sin estado
+    auxiliar que pueda desincronizarse.
+    """
+    if not ruta_pdf or not _es_pendiente(ruta_pdf) or not os.path.exists(ruta_pdf):
+        return ruta_pdf
+
+    os.makedirs(settings.LOCAL_STORAGE_CV_PATH, exist_ok=True)
+    destino = os.path.join(settings.LOCAL_STORAGE_CV_PATH, os.path.basename(ruta_pdf))
+    carpeta_origen = os.path.dirname(ruta_pdf)
+
+    shutil.move(ruta_pdf, destino)
+    shutil.rmtree(carpeta_origen, ignore_errors=True)
+    return destino
+
+
+def descartar_extraccion(ruta_pdf: str) -> None:
+    """Elimina la copia de trabajo de una postulación que no llegó a confirmarse.
+
+    La llama el portal al reiniciar el borrador. No propaga errores: descartar un
+    temporal nunca puede impedirle a alguien empezar una postulación nueva.
+    """
+    if _es_pendiente(ruta_pdf):
+        shutil.rmtree(os.path.dirname(ruta_pdf), ignore_errors=True)
 
 
 class VacancyOrchestrator:
@@ -21,7 +63,7 @@ class VacancyOrchestrator:
     def __init__(self, ai_provider):
         self.ai_provider = ai_provider
         self.extractor = CVImageExtractor()
-        self.chroma_client = chromadb.PersistentClient(path=settings.CHROMA_DB_PATH)
+        self.chroma_client = store_client.crear_cliente()
 
     def process_and_register_vacancy(self, raw_text: str = None, pdf_path: str = None) -> dict:
         """Ejecuta la orquestación completa del ciclo de vida para ingerir, resolver colisiones de nombres y persistir ofertas de empleo."""
@@ -110,13 +152,26 @@ class CandidateOrchestrator:
         """
         image_paths = []
         try:
-            os.makedirs(settings.LOCAL_STORAGE_CV_PATH, exist_ok=True)
-
             # El identificador de fichero es independiente de los datos extraídos:
             # dos candidatos que suban "CV.pdf" no pueden sobrescribirse entre sí.
             nombre_base = os.path.basename(pdf_path).replace(" ", "_")
             nombre_archivo_final = f"CV_{uuid.uuid4().hex[:12]}_{nombre_base}"
-            ruta_persistente_pdf = os.path.join(settings.LOCAL_STORAGE_CV_PATH, nombre_archivo_final)
+
+            # La copia de trabajo vive en un directorio temporal propio, NO en
+            # `storage/cv_files/`. Antes se escribía directamente en el almacén
+            # definitivo, antes de que el candidato confirmase: si abandonaba la
+            # fase 2 del portal —cerraba la pestaña, cambiaba de idea, se le caía
+            # la conexión— el PDF quedaba en disco sin ningún registro que lo
+            # referenciase, y nada lo recogía nunca. El directorio crecía sin
+            # techo y, lo que más pesa, retenía currículums con datos personales
+            # de gente que decidió **no** postularse.
+            #
+            # El fichero solo llega al almacén en `persistir_pdf`, ya con el
+            # consentimiento dado. Y si la postulación se abandona sin pasar por
+            # ningún sitio, lo que queda es un temporal del sistema operativo, no
+            # un residuo permanente de la aplicación.
+            carpeta_pendiente = tempfile.mkdtemp(prefix=PREFIJO_PENDIENTE)
+            ruta_persistente_pdf = os.path.join(carpeta_pendiente, nombre_archivo_final)
             shutil.copy(pdf_path, ruta_persistente_pdf)
 
             image_paths = self.extractor.pdf_to_images(ruta_persistente_pdf)
@@ -174,6 +229,12 @@ class CandidateOrchestrator:
         """
         if datos_formulario is None:
             datos_formulario = {}
+
+        # El PDF pasa al almacén definitivo aquí y no antes: este es el punto en
+        # que la postulación existe de verdad. Se hace antes de indexar para que
+        # la ruta que viaja a los metadatos sea ya la final; si se hiciera
+        # después, el índice apuntaría un instante a un temporal.
+        ruta_persistente_pdf = persistir_pdf(ruta_persistente_pdf)
 
         # --- ARQUITECTURA CONCURRENTE DE DOBLE INDEXACIÓN (Dual-Indexing) ---
         id_en_vacante = None

@@ -9,9 +9,7 @@ apliquen idénticas reglas de visibilidad.
 
 from datetime import datetime
 
-import chromadb
-
-from config import settings
+from core import store_client
 
 COLECCION_GLOBAL = "talento-global-empresa"
 ID_VACANTE = "VACANTE_PRINCIPAL"
@@ -87,7 +85,7 @@ def obtener_silos_del_reclutador() -> list:
     """
     silos = []
     try:
-        cliente = chromadb.PersistentClient(path=settings.CHROMA_DB_PATH)
+        cliente = store_client.crear_cliente()
         hoy = datetime.now()
 
         for col in _silos(cliente):
@@ -119,7 +117,7 @@ def obtener_vacantes_publicas() -> list:
     """
     vacantes = []
     try:
-        cliente = chromadb.PersistentClient(path=settings.CHROMA_DB_PATH)
+        cliente = store_client.crear_cliente()
         hoy = datetime.now()
 
         for col in _silos(cliente):

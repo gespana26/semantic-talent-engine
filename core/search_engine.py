@@ -3,11 +3,8 @@
 import json
 import re
 
-import chromadb
-from chromadb.utils import embedding_functions
-
 from config import settings
-from core import baseline
+from core import baseline, store_client
 from core.affinity import calcular_afinidad, explicar
 from core.data_hygiene import normalizar_texto, primer_dato_valido
 
@@ -21,11 +18,8 @@ class CVSearchEngine:
         # —que un doble de test no tiene por qué replicar— y sigue el patrón
         # que ya usa `CVVectorStoreManager`.
         self.collection_name = collection_name
-        self.client = chromadb.PersistentClient(path=settings.CHROMA_DB_PATH)
-        self.embedding_function = embedding_functions.OllamaEmbeddingFunction(
-            url=settings.OLLAMA_EMBEDDINGS_ENDPOINT,
-            model_name=settings.EMBEDDING_MODEL
-        )
+        self.client = store_client.crear_cliente()
+        self.embedding_function = store_client.crear_funcion_embeddings()
         self.collection = self.client.get_collection(
             name=collection_name,
             embedding_function=self.embedding_function

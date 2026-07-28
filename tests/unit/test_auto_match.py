@@ -35,10 +35,11 @@ def silo(monkeypatch):
             return coleccion
 
     for modulo in (motor, auto_match):
-        monkeypatch.setattr(modulo.chromadb, "PersistentClient", ClienteFalso)
         monkeypatch.setattr(
-            modulo.embedding_functions, "OllamaEmbeddingFunction",
-            lambda *_a, **_k: _embeddings_falsos
+            modulo.store_client, "crear_cliente", lambda *_a, **_k: ClienteFalso()
+        )
+        monkeypatch.setattr(
+            modulo.store_client, "crear_funcion_embeddings", lambda *_a, **_k: _embeddings_falsos
         )
 
     # El suelo de afinidad se neutraliza aquí para que estos tests no dependan

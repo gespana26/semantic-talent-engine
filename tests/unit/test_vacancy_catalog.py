@@ -84,7 +84,7 @@ def colecciones(monkeypatch):
         "global":    ColeccionFalsa(catalogo.COLECCION_GLOBAL, None, candidatos=500),
     }
     monkeypatch.setattr(
-        catalogo.chromadb, "PersistentClient",
+        catalogo.store_client, "crear_cliente",
         lambda *_a, **_k: ClienteFalso(list(catalogo_colecciones.values()))
     )
     return catalogo_colecciones
@@ -210,7 +210,7 @@ def test_el_texto_ausente_no_se_muestra_como_tal(colecciones, monkeypatch) -> No
     """El marcador interno no es contenido que el candidato deba leer."""
     col = ColeccionFalsa("becario", _vacante("Becario", 5, texto=catalogo.TEXTO_AUSENTE))
     monkeypatch.setattr(
-        catalogo.chromadb, "PersistentClient", lambda *_a, **_k: ClienteFalso([col])
+        catalogo.store_client, "crear_cliente", lambda *_a, **_k: ClienteFalso([col])
     )
     assert catalogo.obtener_vacantes_publicas()[0]["detalle"] == ""
 
@@ -225,7 +225,7 @@ def test_un_almacen_caido_no_rompe_el_panel(monkeypatch) -> None:
     def revienta(*_a, **_k):
         raise RuntimeError("almacen no disponible")
 
-    monkeypatch.setattr(catalogo.chromadb, "PersistentClient", revienta)
+    monkeypatch.setattr(catalogo.store_client, "crear_cliente", revienta)
 
     assert catalogo.obtener_silos_del_reclutador() == []
     assert catalogo.obtener_vacantes_publicas() == []

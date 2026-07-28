@@ -1,7 +1,6 @@
-import chromadb
 import streamlit as st
 
-from config import settings
+from core import store_client
 from core.vacancy_catalog import obtener_silos_del_reclutador
 
 
@@ -79,7 +78,7 @@ def modal_detalle_vacante(nombre_silo):
     
     with st.spinner("Consultando expediente original..."):
         try:
-            cliente = chromadb.PersistentClient(path=settings.CHROMA_DB_PATH)
+            cliente = store_client.crear_cliente()
             coleccion = cliente.get_collection(name=nombre_silo)
             
             datos = coleccion.get(include=["metadatas", "documents"])

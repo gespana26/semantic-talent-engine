@@ -60,10 +60,9 @@ def buscador(monkeypatch):
         def get_collection(self, *_a, **_k):
             return _ColeccionDoble()
 
-    monkeypatch.setattr(motor.chromadb, "PersistentClient", ClienteFalso)
+    monkeypatch.setattr(motor.store_client, "crear_cliente", lambda *_a, **_k: ClienteFalso())
     monkeypatch.setattr(
-        motor.embedding_functions, "OllamaEmbeddingFunction",
-        lambda *_a, **_k: MagicMock()
+        motor.store_client, "crear_funcion_embeddings", lambda *_a, **_k: MagicMock()
     )
     return motor.CVSearchEngine()
 

@@ -141,10 +141,9 @@ def buscador(monkeypatch):
         def get_collection(self, *_a, **_k):
             return coleccion
 
-    monkeypatch.setattr(motor.chromadb, "PersistentClient", ClienteFalso)
+    monkeypatch.setattr(motor.store_client, "crear_cliente", lambda *_a, **_k: ClienteFalso())
     monkeypatch.setattr(
-        motor.embedding_functions, "OllamaEmbeddingFunction",
-        lambda *_a, **_k: _embeddings_falsos
+        motor.store_client, "crear_funcion_embeddings", lambda *_a, **_k: _embeddings_falsos
     )
     engine = CVSearchEngine(collection_name="project-manager")
     engine.coleccion_falsa = coleccion

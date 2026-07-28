@@ -13,10 +13,15 @@ temporal y la limpieza retira ficheros y directorio sin propagar errores.
 
 import os
 
-import fitz
 import pytest
 
-from core.extractor import CVImageExtractor
+# Estos tests rasterizan un PDF de verdad: PyMuPDF no se puede sustituir por un
+# doble sin dejar de probar lo que importa. `importorskip` hace que la suite se
+# salte el fichero en un entorno sin el paquete, en lugar de reventar en la fase
+# de recoleccion y llevarse por delante la ejecucion entera.
+fitz = pytest.importorskip("fitz", reason="PyMuPDF no instalado")
+
+from core.extractor import CVImageExtractor  # noqa: E402
 
 
 @pytest.fixture

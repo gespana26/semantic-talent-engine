@@ -25,6 +25,14 @@ import types
 import dotenv
 import pytest
 
+# Estos tests construyen los proveedores REALES para comprobar que se inicializan
+# y que el cliente que instancian es el que toca. Sustituirlos por dobles seria
+# probar el doble, asi que los SDK hacen falta de verdad. `importorskip` hace que
+# la suite se salte el fichero donde no esten, en vez de reventar en la fase de
+# recoleccion y llevarse por delante la ejecucion entera.
+pytest.importorskip("ollama", reason="SDK de Ollama no instalado")
+pytest.importorskip("openai", reason="SDK de OpenAI no instalado")
+
 
 def _reload_chain() -> None:
     """Reload settings -> observability -> ai_provider.
