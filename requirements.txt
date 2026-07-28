@@ -1,25 +1,41 @@
+# =============================================================================
+# Semantic Talent Engine - dependencias de ejecucion
+# Versiones alineadas con el entorno validado del proyecto (.TFM, Python 3.12).
+# Actualizado: 2026-07-22. Instalacion: pip install -r requirements.txt
+# =============================================================================
+
 # --- MOTOR VECTORIAL Y PERSISTENCIA DE DATOS ---
-chromadb>=0.5.23
+chromadb==1.5.9
 
 # --- CAPA COGNITIVA E INFERENCIA DE IA ---
-openai==1.61.0
-ollama==0.4.7
+openai==2.43.0
+ollama==0.6.2
 
-# --- OBSERVABILIDAD LLM: trazas, token/costo y clasificacion de errores ---
-langfuse>=2.57.0
+# --- CONTRATOS DE DATOS (frontera IA <-> negocio; models/schemas.py) ---
+pydantic==2.13.4
+
+# --- OBSERVABILIDAD LLM: trazas, tokens/costes y enmascaramiento de PII ---
+# El codigo usa la API v4 (langfuse.observe, mask a nivel SDK).
+langfuse==4.14.1
 
 # --- GESTION DE VARIABLES DE ENTORNO ---
-python-dotenv==1.0.1
+python-dotenv==1.2.2
 
-# --- PARSING MULTIMODAL Y PROCESAMIENTO GRAFICO DE ARCHIVOS ---
-PyMuPDF==1.25.3
-
-# --- PROCESAMIENTO DE IMAGENES evaluar la imagen justo antes de enviársela a Ollama---
+# --- PARSING MULTIMODAL Y PROCESAMIENTO GRAFICO DE PDF ---
+PyMuPDF==1.27.2.3
 Pillow==12.2.0
 
-# --- INTERFAZ GRAFICA WEB con Streamlit ---
-streamlit>=1.28.0
+# --- INTERFAZ GRAFICA WEB ---
+streamlit==1.58.0
 
-# --- SEGURIDAD Y AUTENTICACION proteccion del dashboard y hash de contraseñas ---
-PyJWT>=2.8.0
-bcrypt>=4.0.0
+# --- SEGURIDAD Y AUTENTICACION (dashboard, JWT y hash de contrasenas) ---
+PyJWT==2.13.0
+bcrypt==5.0.0
+
+# --- HEALTH CHECKS (core/health.py) ---
+requests==2.34.2
+
+# --- OCR OPCIONAL: segundo canal de verificacion de skills para PDFs
+# exportados como imagen (Canva, escaneos). Sin instalarlo, la verificacion
+# se degrada a la capa de texto del PDF y lo declara en los metadatos. ---
+# rapidocr-onnxruntime>=1.4.0
