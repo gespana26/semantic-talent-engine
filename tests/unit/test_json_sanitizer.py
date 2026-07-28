@@ -53,14 +53,41 @@ def test_texto_sin_json_se_devuelve_tal_cual() -> None:
     assert extraer_json("No he podido procesar la solicitud") == "No he podido procesar la solicitud"
 
 
-def test_el_proveedor_local_delega_en_la_utilidad_compartida() -> None:
-    """La robustez debe ser la misma se llame desde donde se llame."""
+def test_el_proveedor_local_no_conserva_su_propio_saneador() -> None:
+    """Regresión del defecto 2.5: la copia privada ya no existe.
+
+    Este test comprobaba que `LocalOllamaProvider._extract_clean_json` produjera
+    el mismo resultado que la utilidad compartida. Verificar que dos
+    implementaciones coinciden es lo mejor que se puede hacer **mientras ambas
+    existen**, pero era tratar el síntoma: la única forma de que no diverjan es
+    que solo haya una.
+
+    Y ya habían divergido. La copia privada no comprobaba que la llave de cierre
+    viniera después de la de apertura —devolvía cadena vacía ante `} … {`— ni
+    toleraba una respuesta nula, donde reventaba con `TypeError` dentro de
+    `re.sub`. El test no lo detectaba porque solo comparaba el caso feliz.
+
+    Ahora se afirma lo contrario: que el método no está. Si alguien lo
+    reintroduce, la suite lo dice.
+    """
     # El proveedor arrastra los SDK de los modelos; el resto de la suite no los
     # necesita y no debe exigirlos para poder ejecutarse.
     pytest.importorskip("ollama")
     pytest.importorskip("openai")
     from models.ai_provider import LocalOllamaProvider
 
-    proveedor = LocalOllamaProvider.__new__(LocalOllamaProvider)
-    crudo = '```json\n{"a": 1}\n```'
-    assert proveedor._extract_clean_json(crudo) == extraer_json(crudo)
+    assert not hasattr(LocalOllamaProvider, "_extract_clean_json")
+
+
+def test_el_proveedor_local_usa_la_utilidad_compartida() -> None:
+    """La ruta de extracción pasa por `extraer_json`, no por una copia local.
+
+    Se comprueba sobre el módulo y no sobre el resultado: que dos funciones
+    devuelvan lo mismo ante una entrada no demuestra que sea la misma función,
+    que es justo lo que aquí importa.
+    """
+    pytest.importorskip("ollama")
+    pytest.importorskip("openai")
+    import models.ai_provider as proveedor_mod
+
+    assert proveedor_mod.extraer_json is extraer_json
