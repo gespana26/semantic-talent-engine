@@ -55,5 +55,5 @@ storage/
 # Ficheros de bloqueo que dejan LibreOffice y Word al abrir un documento
 .~lock.*#
 
-# Script auxiliar de esta sesion
-commit_local.ps1
+# Scripts auxiliares de la sesion de correcciones
+commit_*.ps1
