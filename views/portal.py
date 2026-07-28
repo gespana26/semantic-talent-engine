@@ -8,7 +8,7 @@ from config import settings
 from config.providers import get_ai_provider
 from core.auto_match import evaluar_y_notificar
 from core.data_hygiene import email_valido, primer_dato_valido, telefono_valido
-from core.orchestrator import CandidateOrchestrator
+from core.orchestrator import CandidateOrchestrator, descartar_extraccion
 from core.vacancy_catalog import obtener_vacantes_publicas
 from views.components import render_grilla_perfil
 
@@ -23,7 +23,16 @@ from views.components import render_grilla_perfil
 
 
 def _reiniciar_postulacion():
-    """Descarta el borrador en curso para permitir una nueva postulación."""
+    """Descarta el borrador en curso para permitir una nueva postulación.
+
+    Borra también la copia de trabajo del PDF. Antes solo se limpiaba el estado
+    de sesión, de modo que el fichero seguía en disco sin ningún registro que lo
+    referenciara: el currículum de alguien que decidió no postularse se quedaba
+    ahí para siempre.
+    """
+    pendiente = st.session_state.get("extraccion_pendiente") or {}
+    descartar_extraccion(pendiente.get("ruta_pdf_fisico"))
+
     for clave in ("extraccion_pendiente", "cargo_destino", "titulo_vacante"):
         st.session_state.pop(clave, None)
 
