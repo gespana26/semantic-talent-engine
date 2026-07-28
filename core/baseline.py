@@ -65,11 +65,26 @@ TEXTOS_AJENOS = [texto for _, texto in PERFILES_AJENOS]
 
 
 def coseno(a, b) -> float:
-    """Similitud coseno entre dos vectores."""
+    """Similitud coseno entre dos vectores.
+
+    **El resultado se convierte a `float` de Python a propósito.** La función de
+    embeddings real devuelve arrays de NumPy en `float32`, y ese tipo se propaga
+    por toda la aritmética: la línea base, la similitud normalizada y de ahí el
+    porcentaje que llega a la interfaz. El problema es que `np.float32` **no** es
+    subclase de `float` —`np.float64` sí lo es—, de modo que un
+    `isinstance(valor, float)` aguas abajo devuelve `False` y el número deja de
+    reconocerse como número.
+
+    Ocurrió: el dashboard rotulaba «Léxico» todos los resultados de búsqueda,
+    porque su comprobación de tipo rechazaba el porcentaje que el motor sí había
+    calculado. Convertir aquí, en el único punto donde el vector se reduce a un
+    escalar, es lo que impide que el tipo del proveedor de embeddings viaje al
+    resto del sistema.
+    """
     num = sum(x * y for x, y in zip(a, b))
     na = sum(x * x for x in a) ** 0.5
     nb = sum(y * y for y in b) ** 0.5
-    return num / (na * nb) if na and nb else 0.0
+    return float(num / (na * nb)) if na and nb else 0.0
 
 
 def calcular_linea_base(criterio: str, funcion_embeddings) -> float:
@@ -90,7 +105,7 @@ def calcular_linea_base(criterio: str, funcion_embeddings) -> float:
     if not vectores or len(vectores) != len(TEXTOS_AJENOS) + 1:
         return 0.0
     v_criterio, v_ajenos = vectores[0], vectores[1:]
-    return max((coseno(v_criterio, v) for v in v_ajenos), default=0.0)
+    return float(max((coseno(v_criterio, v) for v in v_ajenos), default=0.0))
 
 
 def normalizar_similitud(similitud: float, linea_base: float) -> float:
@@ -102,7 +117,7 @@ def normalizar_similitud(similitud: float, linea_base: float) -> float:
     """
     if linea_base >= 1.0:
         return 0.0
-    return max(0.0, min(1.0, (similitud - linea_base) / (1.0 - linea_base)))
+    return float(max(0.0, min(1.0, (similitud - linea_base) / (1.0 - linea_base))))
 
 
 def cachear_embeddings(funcion_embeddings):

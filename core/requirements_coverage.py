@@ -72,10 +72,17 @@ def cubre_lexicamente(requisito: str, texto_candidato: str) -> bool:
 
 
 def _coseno(a, b) -> float:
+    """Similitud coseno entre dos vectores.
+
+    Se convierte a `float` de Python por el mismo motivo que en
+    `core.baseline.coseno`: la función de embeddings real devuelve `float32` de
+    NumPy, que no es subclase de `float`, y ese tipo contamina todo lo que se
+    calcule a partir de él hasta llegar a la interfaz.
+    """
     num = sum(x * y for x, y in zip(a, b))
     na = sum(x * x for x in a) ** 0.5
     nb = sum(y * y for y in b) ** 0.5
-    return num / (na * nb) if na and nb else 0.0
+    return float(num / (na * nb)) if na and nb else 0.0
 
 
 # Línea base: habilidades reales, de dominios distintos entre sí y ajenas a las

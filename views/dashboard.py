@@ -1,4 +1,5 @@
 import json
+import numbers
 import os
 
 import streamlit as st
@@ -293,7 +294,13 @@ def render_dashboard_reclutador():
 
                 with col2:
                     afinidad = cand.get('porcentaje_afinidad', 0)
-                    if isinstance(afinidad, (int, float)):
+                    # `numbers.Real` y no `(int, float)`. La comprobación estrecha
+                    # rechazaba `np.float32` —el tipo que devuelve la función de
+                    # embeddings— y rotulaba «Léxico» resultados que sí traían su
+                    # porcentaje calculado. El dominio ya convierte a `float`, así
+                    # que esto es la segunda barrera: la presentación no debería
+                    # romperse por el tipo numérico concreto que le llegue.
+                    if isinstance(afinidad, numbers.Real) and not isinstance(afinidad, bool):
                         # La etiqueta sigue al tipo de puntuación que declara el
                         # motor. Afinidad compuesta y similitud de perfil miden
                         # cosas distintas, y rotular ambas como «Afinidad» era
