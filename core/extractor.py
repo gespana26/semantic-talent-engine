@@ -1,9 +1,14 @@
-"""Módulo encargado del procesamiento gráfico, rasterización y ciclo de vida de activos de documentos temporales."""
+"""Módulo encargado del procesamiento gráfico, rasterización y ciclo de vida de activos de documentos temporales.
+
+PyMuPDF y Pillow se importan de forma diferida, dentro del único método que los
+usa. Es el mismo criterio que aplican `config/providers.py` con los SDK de los
+proveedores de IA y `core/store_client.py` con el almacén: importar un módulo del
+dominio no debe arrastrar sus dependencias pesadas. Aquí el efecto concreto es
+que `core.orchestrator`, que importa esta clase, deja de exigir PyMuPDF instalado
+para poder siquiera recolectar un test que nunca va a rasterizar nada.
+"""
 import os
 import tempfile
-
-import fitz  # PyMuPDF
-from PIL import Image
 
 
 class CVImageExtractor:
@@ -25,6 +30,9 @@ class CVImageExtractor:
         mantenga bloqueado, que en Windows aborta la extracción con
         "cannot remove file: Permission denied".
         """
+        import fitz  # PyMuPDF
+        from PIL import Image
+
         doc = fitz.open(pdf_path)
         image_paths = []
 

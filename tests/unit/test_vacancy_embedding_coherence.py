@@ -19,27 +19,15 @@ coseno**, y el upsert de la vacante ocurre sobre una de esas colecciones.
 import sys
 import types
 
-# ChromaDB se sustituye por dobles (como en el resto de la suite). Si el
-# paquete no está instalado en el entorno de test, se registra un stub mínimo
-# para que los módulos del dominio sean importables.
-try:
-    import chromadb  # noqa: F401
-except ImportError:  # pragma: no cover
-    _chroma = types.ModuleType("chromadb")
-    _chroma.PersistentClient = object
-    _utils = types.ModuleType("chromadb.utils")
-    _ef = types.ModuleType("chromadb.utils.embedding_functions")
-    _ef.OllamaEmbeddingFunction = lambda **kwargs: object()
-    _utils.embedding_functions = _ef
-    _chroma.utils = _utils
-    sys.modules["chromadb"] = _chroma
-    sys.modules["chromadb.utils"] = _utils
-    sys.modules["chromadb.utils.embedding_functions"] = _ef
-
 import pytest
 
+# Ya no hace falta fabricar un `chromadb` falso en `sys.modules`. Los modulos del
+# dominio construyen su cliente a traves de `core.store_client`, que difiere el
+# import, de modo que importarlos no arrastra el almacen y basta con sustituir la
+# costura. Aquel apano solo funcionaba si este fichero se ejecutaba aislado.
 import core.database as database_mod
 import core.orchestrator as orchestrator_mod
+from core import store_client
 from core.orchestrator import VacancyOrchestrator
 from models.schemas import VacancyStructure
 
@@ -98,10 +86,9 @@ class ProveedorDoble:
 def entorno(monkeypatch):
     ClienteDoble.llamadas = []
     ClienteDoble.existentes = []
-    monkeypatch.setattr(orchestrator_mod.chromadb, "PersistentClient", ClienteDoble)
+    monkeypatch.setattr(store_client, "crear_cliente", lambda *_a, **_k: ClienteDoble())
     monkeypatch.setattr(
-        database_mod.embedding_functions, "OllamaEmbeddingFunction",
-        lambda **kwargs: EF_DEL_PROYECTO,
+        store_client, "crear_funcion_embeddings", lambda *_a, **_k: EF_DEL_PROYECTO
     )
     return ClienteDoble
 

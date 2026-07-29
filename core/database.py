@@ -2,11 +2,9 @@
 
 from datetime import datetime
 
-import chromadb
-from chromadb.utils import embedding_functions
-
 from config import settings
 from config.settings import clean_collection_name
+from core import store_client
 from core.data_hygiene import primer_dato_valido
 from models.schemas import CandidateStructure, VacancyStructure
 
@@ -16,11 +14,8 @@ class CVVectorStoreManager:
     
     def __init__(self, nombre_cargo: str = "talento-global-empresa"):
         # NOTA: Ajusté el valor por defecto para que coincida con la colección global de tu orquestador
-        self.client = chromadb.PersistentClient(path=settings.CHROMA_DB_PATH)
-        self.embedding_function = embedding_functions.OllamaEmbeddingFunction(
-            url=settings.OLLAMA_EMBEDDINGS_ENDPOINT,
-            model_name=settings.EMBEDDING_MODEL
-        )
+        self.client = store_client.crear_cliente()
+        self.embedding_function = store_client.crear_funcion_embeddings()
         self.collection_name = clean_collection_name(nombre_cargo)
         self.collection = self.client.get_or_create_collection(
             name=self.collection_name,

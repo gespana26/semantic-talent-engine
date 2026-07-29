@@ -33,11 +33,9 @@ decisión recae solo en la cobertura, que no necesita distribución.
 
 import json
 
-import chromadb
-from chromadb.utils import embedding_functions
-
 from config import settings
 from config.settings import clean_collection_name
+from core import store_client
 from core.email_service import enviar_alerta_talento
 from core.requirements_coverage import evaluar_cobertura
 from core.search_engine import CVSearchEngine
@@ -49,10 +47,7 @@ MAX_MUESTRA_BANCO = 500
 def _funcion_embeddings():
     """Cliente de embeddings para la comprobación semántica de requisitos."""
     try:
-        return embedding_functions.OllamaEmbeddingFunction(
-            url=settings.OLLAMA_EMBEDDINGS_ENDPOINT,
-            model_name=settings.EMBEDDING_MODEL
-        )
+        return store_client.crear_funcion_embeddings()
     except Exception:
         return None
 
@@ -82,7 +77,7 @@ def _percentil_en_banco(criterio: str, distancia_candidato: float) -> tuple:
     5 % del banco se ajusta mejor a esa vacante.
     """
     try:
-        cliente = chromadb.PersistentClient(path=settings.CHROMA_DB_PATH)
+        cliente = store_client.crear_cliente()
         banco = cliente.get_collection(
             name=COLECCION_GLOBAL, embedding_function=_funcion_embeddings()
         )

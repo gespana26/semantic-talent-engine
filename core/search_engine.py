@@ -1,12 +1,10 @@
 """Módulo encargado de la recuperación semántica de información, filtrado estructural de metadatos y cálculo de índices de afinidad."""
 
 import json
-
-import chromadb
-from chromadb.utils import embedding_functions
+import re
 
 from config import settings
-from core import baseline
+from core import baseline, store_client
 from core.affinity import calcular_afinidad, explicar
 from core.data_hygiene import normalizar_texto, primer_dato_valido
 
@@ -20,11 +18,8 @@ class CVSearchEngine:
         # —que un doble de test no tiene por qué replicar— y sigue el patrón
         # que ya usa `CVVectorStoreManager`.
         self.collection_name = collection_name
-        self.client = chromadb.PersistentClient(path=settings.CHROMA_DB_PATH)
-        self.embedding_function = embedding_functions.OllamaEmbeddingFunction(
-            url=settings.OLLAMA_EMBEDDINGS_ENDPOINT,
-            model_name=settings.EMBEDDING_MODEL
-        )
+        self.client = store_client.crear_cliente()
+        self.embedding_function = store_client.crear_funcion_embeddings()
         self.collection = self.client.get_collection(
             name=collection_name,
             embedding_function=self.embedding_function
@@ -39,6 +34,45 @@ class CVSearchEngine:
     CAMPOS_NO_DESCRIPTIVOS = {
         "pdf_file_path", "origen", "fecha_actualizacion", "tipo_registro", "raw_json"
     }
+
+    # Caracteres que cuentan como "parte de una palabra" al comprobar un término
+    # obligatorio. Incluye vocales acentuadas y eñe porque el texto del candidato
+    # se compara en minúsculas pero sin desacentuar.
+    _CARACTER_DE_PALABRA = "0-9a-záéíóúüñç"
+
+    @classmethod
+    def _coincide_termino(cls, termino: str, texto: str) -> bool:
+        """Comprueba si `termino` aparece en `texto` como palabra completa.
+
+        La comparación era por subcadena, y eso convierte en inútil cualquier
+        requisito corto: «R» aparece dentro de "Ruby", "Scrum" y "Barcelona";
+        «Go» dentro de "Google" y "Gomez". El reclutador marcaba la habilidad
+        como innegociable y el filtro la daba por cumplida sin que nadie lo
+        notara — un falso positivo silencioso, que es la peor clase.
+
+        **No se usa `\\b` directamente** porque falla justo en los nombres que más
+        importan aquí: en `\\bc\\+\\+\\b` el límite final exige una transición a
+        carácter de palabra que "c++ " no tiene, de modo que "C++" no casaría
+        nunca. Por eso el guardia se aplica solo del lado en que el término
+        empieza o acaba en carácter de palabra: "C++", "C#" o ".NET" quedan
+        anclados por su lado alfanumérico y libres por el otro.
+
+        Los espacios internos se comparan como "uno o más", así que una frase
+        exacta —"Ingeniero Industrial"— sigue casando aunque el CV la separe con
+        salto de línea o doble espacio. Es estrictamente más permisivo que la
+        subcadena anterior en ese punto, y más estricto en los bordes.
+        """
+        partes = str(termino or "").split()
+        if not partes:
+            return False
+
+        patron = r"\s+".join(re.escape(parte) for parte in partes)
+        if re.match(rf"[{cls._CARACTER_DE_PALABRA}]", partes[0]):
+            patron = rf"(?<![{cls._CARACTER_DE_PALABRA}])" + patron
+        if re.search(rf"[{cls._CARACTER_DE_PALABRA}]$", partes[-1]):
+            patron = patron + rf"(?![{cls._CARACTER_DE_PALABRA}])"
+
+        return re.search(patron, texto) is not None
 
     def _evaluar_filtro_python(self, metadata: dict, filtro_nli: dict) -> bool:
         """Motor de evaluación léxica interno. Refactorizado para búsqueda 'Omnidireccional' (Forgiving Filter)."""
@@ -72,8 +106,9 @@ class CVSearchEngine:
                     if isinstance(operacion, dict) and "$contains" in operacion:
                         evaluadas += 1
                         valor_buscado = str(operacion["$contains"]).lower()
-                        # Si el término existe en CUALQUIER parte de su CV, pasa el filtro
-                        if valor_buscado in texto_global_candidato:
+                        # Si el término existe como palabra completa en CUALQUIER
+                        # parte de su CV, pasa el filtro.
+                        if self._coincide_termino(valor_buscado, texto_global_candidato):
                             return True
             # Ninguna alternativa reconocible: fail-closed, no fail-open.
             return False
@@ -83,7 +118,7 @@ class CVSearchEngine:
             if isinstance(operacion, dict) and "$contains" in operacion:
                 evaluadas += 1
                 valor_buscado = str(operacion["$contains"]).lower()
-                if valor_buscado not in texto_global_candidato:
+                if not self._coincide_termino(valor_buscado, texto_global_candidato):
                     return False
 
         # El filtro traía condiciones, pero ninguna era interpretable. Descartar
@@ -252,7 +287,7 @@ class CVSearchEngine:
         try:
             # El silo es autocontenido: la vacante comparte colección con sus candidatos.
             # Pre-filtrar por tipo_registro la excluye en el propio motor, de modo que no
-            # consume uno de los 50 resultados de la ventana de recuperación.
+            # consume uno de los resultados de la ventana de recuperación.
             n_recuperar = self._tamano_recuperacion()
             results = self._consultar_vectorial(query_text, prefiltrar=True, n_results=n_recuperar)
 
@@ -363,6 +398,14 @@ class CVSearchEngine:
                 continue
 
             normalizada = baseline.normalizar_similitud(similitud, base)
+            # El coseno crudo se conserva junto a la línea base y al valor
+            # normalizado. Los tres juntos permiten reconstruir la operación
+            # —(coseno − base) / (1 − base)— y por tanto defender el porcentaje
+            # en lugar de tener que creérselo. Hasta ahora el coseno se
+            # calculaba y se descartaba en esta misma línea, que es justo el dato
+            # que hace falta para explicar por qué un 25 % puede ser el mejor
+            # resultado de la búsqueda.
+            candidato["similitud_coseno"] = round(similitud, 4)
             candidato["similitud_normalizada"] = round(normalizada * 100, 2)
             candidato["linea_base"] = round(base, 4)
             puntuados.append(candidato)

@@ -141,10 +141,9 @@ def buscador(monkeypatch):
         def get_collection(self, *_a, **_k):
             return coleccion
 
-    monkeypatch.setattr(motor.chromadb, "PersistentClient", ClienteFalso)
+    monkeypatch.setattr(motor.store_client, "crear_cliente", lambda *_a, **_k: ClienteFalso())
     monkeypatch.setattr(
-        motor.embedding_functions, "OllamaEmbeddingFunction",
-        lambda *_a, **_k: _embeddings_falsos
+        motor.store_client, "crear_funcion_embeddings", lambda *_a, **_k: _embeddings_falsos
     )
     engine = CVSearchEngine(collection_name="project-manager")
     engine.coleccion_falsa = coleccion
@@ -192,6 +191,30 @@ def test_el_resultado_llega_explicado(buscador) -> None:
     assert primero["tipo_puntuacion"] == "afinidad"
     assert "habilidades" in primero["explicacion"]
     assert primero["desglose"]["cobertura"]["total"] == 2
+
+
+def test_el_resultado_permite_reconstruir_su_propia_escala(buscador) -> None:
+    """Coseno crudo, línea base y valor normalizado viajan juntos.
+
+    Sin el coseno el porcentaje no se puede auditar: un 25 % podría ser el mejor
+    resultado de la búsqueda o un error de escala, y no habría forma de saberlo
+    desde fuera. Conservando los tres, la operación
+    `(coseno − base) / (1 − base)` se puede rehacer a mano, que es lo que
+    convierte el número en defendible.
+    """
+    # Se usa el criterio de la vacante y no una frase suelta: en el espacio del
+    # doble, un texto sin conceptos reconocibles da línea base 1,0 y la fórmula
+    # corta antes de dividir, con lo que no habría nada que reconstruir.
+    primero = buscador.search_candidates(
+        query_text=buscador.obtener_perfil_vacante(), limit=1, vacante=VACANTE
+    )[0]
+
+    coseno = primero["similitud_coseno"]
+    base = primero["linea_base"]
+    assert base < 1.0, "Sin margen sobre la línea base no hay escala que auditar."
+
+    esperado = round(max(0.0, min(1.0, (coseno - base) / (1 - base))) * 100, 2)
+    assert primero["similitud_normalizada"] == pytest.approx(esperado, abs=0.05)
 
 
 def test_la_busqueda_libre_se_marca_como_similitud(buscador) -> None:

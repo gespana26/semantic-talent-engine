@@ -2,17 +2,121 @@
 
 import os
 import shutil
+import tempfile
 import threading
 import uuid  # Utiliza la biblioteca nativa estándar de Python
 from datetime import datetime, timedelta
 
-import chromadb
-
 from config import settings
-from core import skill_verification
+from core import skill_verification, store_client
 from core.database import CVVectorStoreManager
 from core.email_service import enviar_alerta_revision_cv
 from core.extractor import CVImageExtractor
+
+# Prefijo del directorio donde vive la copia de trabajo de una postulación que
+# todavía no se ha confirmado. Es lo que permite distinguir un PDF pendiente de
+# uno ya persistido sin llevar estado en ningún sitio: la ruta lo dice.
+PREFIJO_PENDIENTE = "cv_pendiente_"
+
+
+def _es_pendiente(ruta_pdf: str) -> bool:
+    """Indica si la ruta apunta al área temporal de postulaciones sin confirmar."""
+    if not ruta_pdf:
+        return False
+    return os.path.basename(os.path.dirname(ruta_pdf)).startswith(PREFIJO_PENDIENTE)
+
+
+def persistir_pdf(ruta_pdf: str) -> str:
+    """Traslada al almacén definitivo el PDF de una postulación confirmada.
+
+    Devuelve la ruta final, que es la que se indexa como `pdf_file_path`. **Es
+    idempotente**: si la ruta ya apunta al almacén —caso de una llamada repetida,
+    o del flujo de la CLI si algún día persistiera antes— se devuelve sin tocar
+    nada. La decisión de si hay que mover se lee de la propia ruta, sin estado
+    auxiliar que pueda desincronizarse.
+    """
+    if not ruta_pdf or not _es_pendiente(ruta_pdf) or not os.path.exists(ruta_pdf):
+        return ruta_pdf
+
+    os.makedirs(settings.LOCAL_STORAGE_CV_PATH, exist_ok=True)
+    destino = os.path.join(settings.LOCAL_STORAGE_CV_PATH, os.path.basename(ruta_pdf))
+    carpeta_origen = os.path.dirname(ruta_pdf)
+
+    shutil.move(ruta_pdf, destino)
+    shutil.rmtree(carpeta_origen, ignore_errors=True)
+    return destino
+
+
+def describir_vacante(vacancy_json) -> str:
+    """Redacta una descripción legible a partir de los campos ya extraídos.
+
+    Es el **último recurso** cuando la oferta llega en PDF y no se puede leer su
+    texto: un documento escaneado sin capa de texto y sin OCR disponible. No es
+    lo que redactó el reclutador sino lo que el modelo entendió, y por eso se
+    marca como tal: el candidato tiene derecho a saber que está leyendo una
+    reconstrucción y no la oferta literal.
+
+    Preferimos esto a dejar la descripción vacía. Una vacante sin texto no se
+    puede evaluar: el candidato no sabe a qué se postula y el reclutador no ve
+    qué publicó.
+    """
+    def _lista(valores):
+        return ", ".join(str(v) for v in (valores or []) if str(v).strip())
+
+    secciones = [
+        f"[Descripción reconstruida a partir del documento, no es el texto original]",
+        "",
+        str(getattr(vacancy_json, "titulo_cargo", "") or "").strip(),
+        "",
+        str(getattr(vacancy_json, "perfil_general", "") or "").strip(),
+    ]
+
+    for etiqueta, valor in (
+        ("Formación requerida", _lista(getattr(vacancy_json, "estudios_requeridos", None))),
+        ("Experiencia mínima", f"{getattr(vacancy_json, 'experiencia_minima_anos', 0)} años"),
+        ("Habilidades técnicas", _lista(getattr(vacancy_json, "hard_skills", None))),
+        ("Competencias blandas", _lista(getattr(vacancy_json, "soft_skills", None))),
+        ("Rango salarial", str(getattr(vacancy_json, "rango_salarial", "") or "").strip()),
+    ):
+        if valor and valor != "No especificado":
+            secciones += ["", f"{etiqueta}: {valor}"]
+
+    return "\n".join(secciones).strip()
+
+
+def texto_de_la_oferta(pdf_path: str, image_paths: list, vacancy_json) -> str:
+    """Obtiene el texto de una oferta que llegó en PDF.
+
+    `store_vacancy` recibía `texto_original=raw_text`, que es `None` cuando la
+    vacante se sube como PDF. El campo caía entonces al literal «Texto original
+    no disponible», con dos consecuencias visibles: el visor del reclutador
+    mostraba ese texto en lugar de la oferta, y el portal del candidato —que
+    detecta el marcador y lo convierte en cadena vacía— presentaba la vacante
+    **sin descripción alguna**. Un mismo descuido en las dos caras del producto.
+
+    Se reutiliza la cascada texto-PDF → OCR que ya existe para los currículums en
+    `core.skill_verification`, en vez de inventar una segunda forma de leer un
+    PDF. Si tampoco por ahí sale texto, se recurre a la reconstrucción.
+    """
+    try:
+        texto, _canal = skill_verification.extraer_texto_documento(pdf_path, image_paths)
+    except Exception:
+        texto = ""
+
+    if texto and texto.strip():
+        return texto.strip()
+
+    return describir_vacante(vacancy_json)
+
+
+def descartar_extraccion(ruta_pdf: str) -> None:
+    """Elimina la copia de trabajo de una postulación que no llegó a confirmarse.
+
+    La llama el portal al reiniciar el borrador. No propaga errores: descartar un
+    temporal nunca puede impedirle a alguien empezar una postulación nueva.
+    """
+    if _es_pendiente(ruta_pdf):
+        shutil.rmtree(os.path.dirname(ruta_pdf), ignore_errors=True)
 
 
 class VacancyOrchestrator:
@@ -21,7 +125,7 @@ class VacancyOrchestrator:
     def __init__(self, ai_provider):
         self.ai_provider = ai_provider
         self.extractor = CVImageExtractor()
-        self.chroma_client = chromadb.PersistentClient(path=settings.CHROMA_DB_PATH)
+        self.chroma_client = store_client.crear_cliente()
 
     def process_and_register_vacancy(self, raw_text: str = None, pdf_path: str = None) -> dict:
         """Ejecuta la orquestación completa del ciclo de vida para ingerir, resolver colisiones de nombres y persistir ofertas de empleo."""
@@ -30,8 +134,13 @@ class VacancyOrchestrator:
             if pdf_path:
                 image_paths = self.extractor.pdf_to_images(pdf_path)
                 vacancy_json = self.ai_provider.parse_vacancy(image_paths=image_paths)
+                # La oferta en PDF también tiene texto, y hay que ir a buscarlo:
+                # sin esto el campo quedaba con el marcador de ausencia y la
+                # vacante se publicaba sin descripción.
+                texto_oferta = texto_de_la_oferta(pdf_path, image_paths, vacancy_json)
             else:
                 vacancy_json = self.ai_provider.parse_vacancy(raw_text=raw_text)
+                texto_oferta = raw_text
 
             # --- GENERACIÓN ARITMÉTICA DE MARCAS DE TIEMPO (Query-Time TTL) ---
             fecha_actual = datetime.now()
@@ -74,10 +183,10 @@ class VacancyOrchestrator:
 
             # 📌 PASAMOS EL TEXTO ORIGINAL COMO EQUIPAJE OCULTO
             db_manager.store_vacancy(
-                vacancy_json, 
-                timestamp_creacion, 
+                vacancy_json,
+                timestamp_creacion,
                 timestamp_expiracion,
-                texto_original=raw_text 
+                texto_original=texto_oferta
             )
             
             # --- el orquestador devuelve el estado Y los datos extraídos ---
@@ -110,13 +219,26 @@ class CandidateOrchestrator:
         """
         image_paths = []
         try:
-            os.makedirs(settings.LOCAL_STORAGE_CV_PATH, exist_ok=True)
-
             # El identificador de fichero es independiente de los datos extraídos:
             # dos candidatos que suban "CV.pdf" no pueden sobrescribirse entre sí.
             nombre_base = os.path.basename(pdf_path).replace(" ", "_")
             nombre_archivo_final = f"CV_{uuid.uuid4().hex[:12]}_{nombre_base}"
-            ruta_persistente_pdf = os.path.join(settings.LOCAL_STORAGE_CV_PATH, nombre_archivo_final)
+
+            # La copia de trabajo vive en un directorio temporal propio, NO en
+            # `storage/cv_files/`. Antes se escribía directamente en el almacén
+            # definitivo, antes de que el candidato confirmase: si abandonaba la
+            # fase 2 del portal —cerraba la pestaña, cambiaba de idea, se le caía
+            # la conexión— el PDF quedaba en disco sin ningún registro que lo
+            # referenciase, y nada lo recogía nunca. El directorio crecía sin
+            # techo y, lo que más pesa, retenía currículums con datos personales
+            # de gente que decidió **no** postularse.
+            #
+            # El fichero solo llega al almacén en `persistir_pdf`, ya con el
+            # consentimiento dado. Y si la postulación se abandona sin pasar por
+            # ningún sitio, lo que queda es un temporal del sistema operativo, no
+            # un residuo permanente de la aplicación.
+            carpeta_pendiente = tempfile.mkdtemp(prefix=PREFIJO_PENDIENTE)
+            ruta_persistente_pdf = os.path.join(carpeta_pendiente, nombre_archivo_final)
             shutil.copy(pdf_path, ruta_persistente_pdf)
 
             image_paths = self.extractor.pdf_to_images(ruta_persistente_pdf)
@@ -174,6 +296,12 @@ class CandidateOrchestrator:
         """
         if datos_formulario is None:
             datos_formulario = {}
+
+        # El PDF pasa al almacén definitivo aquí y no antes: este es el punto en
+        # que la postulación existe de verdad. Se hace antes de indexar para que
+        # la ruta que viaja a los metadatos sea ya la final; si se hiciera
+        # después, el índice apuntaría un instante a un temporal.
+        ruta_persistente_pdf = persistir_pdf(ruta_persistente_pdf)
 
         # --- ARQUITECTURA CONCURRENTE DE DOBLE INDEXACIÓN (Dual-Indexing) ---
         id_en_vacante = None

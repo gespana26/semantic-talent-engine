@@ -1,16 +1,150 @@
 import json
+import numbers
 import os
 
 import streamlit as st
 
 from config import settings
+from config.providers import get_ai_provider
 from config.settings import clean_collection_name
 from core.orchestrator import VacancyOrchestrator
 from core.query_translator import QueryTranslator
 from core.search_engine import CVSearchEngine
-from core.security import generar_token, validar_token, verificar_credenciales
-from models.ai_provider import LocalOllamaProvider, OpenAIProvider
+from core.security import (
+    generar_token,
+    minutos_de_bloqueo,
+    validar_token,
+    verificar_credenciales,
+)
 from views.components import modal_detalle_vacante, modal_perfil_completo, obtener_resumen_silos
+
+# La vista no importa ninguna implementación concreta de proveedor. Los dos
+# `if AI_PROVIDER_TYPE` que había aquí reintroducían la decisión que
+# `config/providers.py` centraliza, y hacían que añadir un tercer proveedor
+# obligara a encontrarlos todos.
+
+
+def _resumen_para_reclutador(cand: dict) -> list:
+    """Traduce el desglose a lo que un reclutador necesita para decidir.
+
+    La versión anterior mostraba el coseno, la línea base y la fórmula. Eso sirve
+    para defender la métrica ante un tribunal, pero no para decidir a quién
+    llamar: son dos audiencias distintas y el producto se había resuelto para la
+    equivocada. Un reclutador no pregunta cómo se calculó el 72 %, pregunta **qué
+    pide la vacante que esta persona cumple y qué no**.
+
+    Ese dato ya existía y se estaba tirando. `cobertura` guarda los requisitos
+    cubiertos y los que faltan **por su nombre**, y `por_similitud` registra
+    además con qué habilidad concreta del candidato se dio por cubierto cada uno.
+    La interfaz lo resumía todo en «cubre 2 de 3», que es el número sin la
+    información.
+
+    Devuelve líneas de markdown listas para pintar; vacío si no hay desglose
+    —búsqueda libre sin vacante—, donde no hay requisitos que contrastar.
+    """
+    desglose = cand.get("desglose")
+    if not desglose:
+        return []
+
+    lineas = []
+    cobertura = desglose.get("cobertura") or {}
+    equivalencias = cobertura.get("por_similitud") or {}
+
+    def _con_equivalencia(requisito):
+        """Señala cuándo un requisito se dio por cubierto sin aparecer literal.
+
+        Es información que el reclutador merece: «Machine Learning» contado como
+        cubierto porque el CV dice «Deep Learning» es una decisión del sistema, y
+        quien entrevista tiene que poder revisarla o rebatirla.
+        """
+        equivalente = equivalencias.get(requisito)
+        if not equivalente:
+            return f"`{requisito}`"
+        habilidad = equivalente[0] if isinstance(equivalente, (tuple, list)) else equivalente
+        return f"`{requisito}` _(por «{habilidad}»)_"
+
+    cubiertos = cobertura.get("cubiertos") or []
+    faltantes = cobertura.get("faltantes") or []
+
+    if cubiertos:
+        lineas.append("✅ **Cumple:** " + ", ".join(_con_equivalencia(r) for r in cubiertos))
+    if faltantes:
+        lineas.append("❌ **No se evidencia:** " + ", ".join(f"`{r}`" for r in faltantes))
+    if not cubiertos and not faltantes:
+        lineas.append("➖ La vacante no declara habilidades obligatorias.")
+
+    academico = desglose.get("academico") or {}
+    if not academico.get("sin_requisitos") and academico.get("total"):
+        if academico.get("faltantes"):
+            lineas.append(
+                "🎓 **Formación:** no acredita "
+                + ", ".join(f"`{e}`" for e in academico["faltantes"])
+            )
+        else:
+            lineas.append("🎓 **Formación:** cumple lo exigido")
+
+    exigidos = desglose.get("anios_requeridos") or 0
+    tiene = desglose.get("anios_candidato") or 0
+    if exigidos:
+        marca = "📅" if tiene >= exigidos else "⚠️"
+        lineas.append(f"{marca} **Experiencia:** {tiene} años (la vacante pide {exigidos})")
+
+    return lineas
+
+
+def _detalle_de_la_puntuacion(cand: dict) -> str:
+    """Redacta cómo se obtuvo el número, para poder defenderlo y no solo creérselo.
+
+    Se muestra como ayuda emergente del indicador: el reclutador que solo quiere
+    el porcentaje no la ve, y quien necesita justificarlo la tiene a un paso.
+
+    La pregunta que responde es concreta y recurrente: por qué el mejor resultado
+    de una búsqueda puede ser un 25 %. La escala no arranca en cero teórico sino
+    en la **línea base medida** —la similitud que obtiene un perfil ajeno frente
+    a esa misma consulta, en torno a 0,70—, de modo que el porcentaje expresa
+    cuánto destaca el candidato sobre ese suelo real y no el coseno en bruto.
+    """
+    coseno = cand.get("similitud_coseno")
+    base = cand.get("linea_base")
+    if coseno is None or base is None:
+        return ""
+
+    lineas = [
+        f"Coseno crudo: {coseno:.4f}",
+        f"Línea base medida para esta consulta: {base:.4f}",
+        f"Normalizado: ({coseno:.4f} − {base:.4f}) / (1 − {base:.4f})"
+        f" = {cand.get('similitud_normalizada', 0):.2f} %",
+        "",
+        "La línea base es la similitud que obtiene un perfil manifiestamente "
+        "ajeno frente a esta misma consulta. Se resta porque el coseno entre dos "
+        "textos profesionales sin relación no es 0, sino ~0,68: sin descontarla, "
+        "cualquier candidato arrancaría en torno al 84 %.",
+    ]
+
+    desglose = cand.get("desglose")
+    if desglose:
+        cobertura = desglose["cobertura"]
+        lineas += [
+            "",
+            f"Afinidad = ({settings.PESO_COBERTURA:g} × cobertura "
+            f"+ {settings.PESO_SIMILITUD:g} × similitud) × experiencia × profesión",
+            f"  cobertura de habilidades: {len(cobertura['cubiertos'])}/{cobertura['total']}"
+            f" = {cobertura['ratio']:.2f}",
+            f"  factor experiencia: {desglose['factor_experiencia']}",
+            f"  factor profesión:   {desglose['factor_profesion']}",
+        ]
+    else:
+        lineas += [
+            "",
+            "Sin vacante estructurada no hay cobertura de habilidades que medir, "
+            "así que este número es solo similitud de perfil: la señal más débil "
+            "de las que usa el sistema, y la que pesa un "
+            f"{settings.PESO_SIMILITUD:g} en la afinidad compuesta. Para obtener "
+            "la afinidad completa, busque dentro de un silo de vacante o use "
+            "el comando /match:.",
+        ]
+
+    return "\n".join(lineas)
 
 
 def render_dashboard_reclutador():
@@ -31,9 +165,17 @@ def render_dashboard_reclutador():
                 submit_login = st.form_submit_button("Ingresar al Dashboard", type="primary", use_container_width=True)
 
                 if submit_login:
-                    if verificar_credenciales(user_input, pass_input):
+                    # El bloqueo se comunica como bloqueo. Presentarlo como
+                    # "credenciales incorrectas" deja al reclutador legítimo
+                    # probando una contraseña que ya es la correcta.
+                    espera = minutos_de_bloqueo(user_input)
+                    if espera:
+                        st.error(
+                            f"⏳ Demasiados intentos fallidos. Vuelva a intentarlo en {espera} min."
+                        )
+                    elif verificar_credenciales(user_input, pass_input):
                         st.session_state.jwt_token = generar_token(user_input)
-                        st.rerun() 
+                        st.rerun()
                     else:
                         st.error("❌ Credenciales incorrectas. Intente nuevamente.")
         return 
@@ -44,6 +186,18 @@ def render_dashboard_reclutador():
         st.subheader("Buscador Híbrido RAG & Nominal")
     with col_der:
         st.caption(f"👤 Conectado: **{username.upper()}**")
+        # Equivalente al «postular a otra vacante» del portal: devuelve la
+        # pantalla al estado inicial sin cerrar la sesión. Los resultados de una
+        # búsqueda persisten entre recargas de Streamlit, de modo que el
+        # reclutador arrastraba los de la consulta anterior mientras preparaba la
+        # siguiente. Se asignan valores vacíos en lugar de borrar las claves,
+        # porque el resto de la vista las lee directamente.
+        if st.button("🧹 Limpiar Pantalla", use_container_width=True):
+            st.session_state.resultados_busqueda = []
+            st.session_state.telemetria = None
+            st.session_state.vacante_creada = None
+            st.rerun()
+
         if st.button("🚪 Cerrar Sesión", use_container_width=True):
             st.session_state.jwt_token = None
             st.rerun()
@@ -60,10 +214,15 @@ def render_dashboard_reclutador():
                     if st.button(f"🏢 {nombre_amigable}", key=f"btn_silo_{silo['nombre']}", use_container_width=True):
                         modal_detalle_vacante(silo['nombre'])
                     
-                    if silo['dias'] == "∞":
+                    # `expirada` lo decide el dominio. Deducirlo aquí de
+                    # `dias == 0` confundía dos estados distintos: una vacante
+                    # que cierra hoy sigue admitiendo postulaciones.
+                    if silo.get('expirada'):
+                        st.error("⚠️ Expirada")
+                    elif silo['dias'] == "∞":
                         st.caption("⏳ Abierta (Sin límite)")
                     elif silo['dias'] == 0:
-                        st.error("⚠️ Expirada")
+                        st.caption("⏳ Último día")
                     else:
                         st.caption(f"⏳ {silo['dias']} días restantes")
                     
@@ -100,9 +259,7 @@ def render_dashboard_reclutador():
                         with open(ruta_temp_vacante, "wb") as f:
                             f.write(archivo_vacante.getbuffer())
 
-                        tipo_proveedor = settings.AI_PROVIDER_TYPE.lower()
-                        proveedor_ia = OpenAIProvider() if tipo_proveedor == "openai" else LocalOllamaProvider()
-                        orquestador = VacancyOrchestrator(ai_provider=proveedor_ia)
+                        orquestador = VacancyOrchestrator(ai_provider=get_ai_provider())
                         resultado = orquestador.process_and_register_vacancy(pdf_path=ruta_temp_vacante)
 
                         if resultado.get("status") == "success":
@@ -141,9 +298,7 @@ def render_dashboard_reclutador():
                 st.stop()
                 
             with st.spinner("Creando vacante y configurando silo..."):
-                tipo_proveedor = settings.AI_PROVIDER_TYPE.lower()
-                proveedor_ia = OpenAIProvider() if tipo_proveedor == "openai" else LocalOllamaProvider()
-                orquestador = VacancyOrchestrator(ai_provider=proveedor_ia)
+                orquestador = VacancyOrchestrator(ai_provider=get_ai_provider())
                 resultado = orquestador.process_and_register_vacancy(raw_text=texto_vacante)
             
             if resultado.get("status") == "success":
@@ -199,7 +354,18 @@ def render_dashboard_reclutador():
                         st.warning("No se encontró el perfil de la vacante para el auto-match.")
                         st.stop()
                         
-                    candidatos = buscador.search_candidates(query_text=texto_vacante, limit=10)
+                    # La vacante estructurada es lo que habilita la afinidad por
+                    # componentes. Sin ella el motor devuelve solo similitud y el
+                    # dashboard la mostraba bajo la etiqueta «Afinidad», que es
+                    # otra magnitud. Es la misma llamada que ya hace
+                    # `core/auto_match.py`, de modo que la alerta al reclutador y
+                    # lo que el reclutador ve en pantalla vuelven a ser el mismo
+                    # número.
+                    candidatos = buscador.search_candidates(
+                        query_text=texto_vacante,
+                        limit=10,
+                        vacante=buscador.obtener_vacante_estructurada()
+                    )
                     st.session_state.resultados_busqueda = [c for c in candidatos if c.get('nombre')]
                     st.success(f"Auto-Match ejecutado contra el perfil de la vacante '{silo_objetivo}'.")
 
@@ -214,8 +380,17 @@ def render_dashboard_reclutador():
                         }
                     
                     filtro = query_estructurada.where_filter if query_estructurada.where_filter else None
+                    # En un silo la búsqueda libre sigue teniendo requisitos que
+                    # verificar: el reclutador acota sobre los postulantes de una
+                    # vacante concreta. En la bolsa global no hay
+                    # `VACANTE_PRINCIPAL`, así que esto devuelve `{}` y el motor
+                    # cae por sí solo a similitud. La distinción no se codifica
+                    # aquí: la resuelve el dato.
                     candidatos = buscador.search_candidates(
-                        query_text=query_estructurada.query_text_conceptual, limit=5, where_filter=filtro
+                        query_text=query_estructurada.query_text_conceptual,
+                        limit=5,
+                        where_filter=filtro,
+                        vacante=buscador.obtener_vacante_estructurada()
                     )
                     st.session_state.resultados_busqueda = [c for c in candidatos if c.get('nombre')]
                     st.success("Búsqueda semántica híbrida completada.")
@@ -245,11 +420,55 @@ def render_dashboard_reclutador():
                     json_data = cand.get('perfil_completo_json', {})
                     extracto = json_data.get('perfil_profesional', 'Extracto no disponible')[:150] + "..."
                     st.write(f"**Extracto:** {extracto}")
-                
+
+                    # El porcentaje solo es defendible si se puede desarmar. El
+                    # motor ya redacta el desglose en una línea; hasta ahora se
+                    # calculaba y se descartaba sin llegar a la pantalla.
+                    # Qué pide la vacante que esta persona cumple y qué no. Es lo
+                    # que sostiene la decisión de llamarla o descartarla, así que
+                    # va a la vista y no escondido tras un icono de ayuda.
+                    for linea in _resumen_para_reclutador(cand):
+                        st.markdown(
+                            f"<small>{linea}</small>", unsafe_allow_html=True
+                        )
+
+                    if not cand.get('desglose') and cand.get('explicacion'):
+                        st.caption(f"🎯 {cand['explicacion']}")
+
+                    # La aritmética queda para el modo depuración. Justifica la
+                    # escala ante un tribunal, pero al reclutador no le dice
+                    # nada que pueda usar.
+                    if settings.DEBUG_MODE and cand.get('similitud_coseno') is not None:
+                        with st.expander("🔬 Detalle del cálculo", expanded=False):
+                            st.text(_detalle_de_la_puntuacion(cand))
+
                 with col2:
                     afinidad = cand.get('porcentaje_afinidad', 0)
-                    if isinstance(afinidad, (int, float)):
-                        st.metric(label="Afinidad", value=f"{afinidad}%")
+                    # `numbers.Real` y no `(int, float)`. La comprobación estrecha
+                    # rechazaba `np.float32` —el tipo que devuelve la función de
+                    # embeddings— y rotulaba «Léxico» resultados que sí traían su
+                    # porcentaje calculado. El dominio ya convierte a `float`, así
+                    # que esto es la segunda barrera: la presentación no debería
+                    # romperse por el tipo numérico concreto que le llegue.
+                    if isinstance(afinidad, numbers.Real) and not isinstance(afinidad, bool):
+                        # La etiqueta sigue al tipo de puntuación que declara el
+                        # motor. Afinidad compuesta y similitud de perfil miden
+                        # cosas distintas, y rotular ambas como «Afinidad» era
+                        # exactamente lo que hacía irreproducible el número.
+                        es_afinidad = cand.get('tipo_puntuacion') == "afinidad"
+                        st.metric(
+                            label="Afinidad" if es_afinidad else "Similitud",
+                            value=f"{afinidad}%",
+                            help=(
+                                "Pondera sobre todo cuántos requisitos de la vacante "
+                                "cumple el candidato, y ajusta por formación y años de "
+                                "experiencia. El detalle está junto a su perfil."
+                                if es_afinidad else
+                                "Parecido general entre el perfil y lo que ha escrito, "
+                                "sin requisitos que contrastar. Busque dentro de un silo "
+                                "de vacante o use /match: para obtener la afinidad."
+                            )
+                        )
                     else:
                         st.metric(label="Match", value="Léxico")
                         

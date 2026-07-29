@@ -6,8 +6,14 @@ import re
 
 from dotenv import load_dotenv
 
-# Cargar las variables del archivo .env local
-load_dotenv()
+# Cargar las variables del archivo .env local.
+#
+# `override=True` no es un detalle: sin el, `load_dotenv` respeta la variable que
+# ya existiera en el entorno del sistema y el .env NO gana. Se verifico
+# experimentalmente. Combinado con el cacheo de modulos, el sintoma era que
+# editar el .env con Streamlit levantado no surtia efecto y no habia forma de
+# saber por que: el fichero decia una cosa y el proceso usaba otra.
+load_dotenv(override=True)
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +26,13 @@ EMBEDDING_MODEL = "nomic-embed-text"
 # --- CONFIGURACION DINAMICA DESDE EL ENTORNO (.env) ---
 AI_PROVIDER_TYPE = os.getenv("AI_PROVIDER_TYPE", "openai")
 MODEL_NAME = os.getenv("MODEL_NAME", "gpt-4o-mini")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "placeholder_key_clean")
+# Sin valor por defecto. El anterior, "placeholder_key_clean", permitia construir
+# el cliente de OpenAI igualmente, de modo que la ausencia de clave no se
+# detectaba al arrancar sino que reaparecia mucho despues como "Fallo critico en
+# el procesamiento multimodal" o "Error en el motor de busqueda": dos mensajes
+# que no mencionan la causa. La validacion vive en `config/providers.py`, que es
+# donde se decide el proveedor y por tanto donde se sabe si la clave hace falta.
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 
 # --- CONFIGURACIÓN DE CORREO ELECTRÓNICO ---
 EMAIL_SENDER_USER = os.getenv("EMAIL_SENDER_USER")
@@ -44,12 +56,6 @@ PESO_SIMILITUD = float(os.getenv("PESO_SIMILITUD", "0.25"))
 # nivel académico (a veces devuelve genéricos como "Profesional") descarte por
 # completo a un candidato válido.
 PISO_FACTOR_PROFESION = float(os.getenv("PISO_FACTOR_PROFESION", "0.4"))
-# Tamaño de la ventana que se re-puntúa con la fórmula compuesta (patrón
-# retrieve-and-rerank). La recuperación vectorial trae 50 resultados; verificar
-# requisito a requisito los 50 multiplicaría por diez el coste de una búsqueda
-# para reordenar posiciones que nadie mira. Por encima de la ventana sigue
-# mandando el orden vectorial, y esa es la limitación que hereda del techo de
-# recall del post-filtrado.
 # Tamaño de la ventana de re-puntuado. Se elevó de 20 a 100 al medir cuánto pesa
 # realmente cada señal: el rango COMPLETO de la distancia vectorial vale 4,4
 # puntos de afinidad, mientras que cubrir un requisito más vale entre 15 y 37,5.
@@ -113,9 +119,39 @@ VERIFICACION_SKILLS_HABILITADA = os.getenv("VERIFICACION_SKILLS_HABILITADA", "Tr
 # documento para no marcar el perfil como sospechoso.
 UMBRAL_SKILLS_VERIFICADAS = float(os.getenv("UMBRAL_SKILLS_VERIFICADAS", "0.5"))
 
+# --- SEGURIDAD Y AUTENTICACION DEL DASHBOARD ---
+# La clave de firma NO tiene valor por defecto, y es deliberado. `core/security`
+# la resolvia con un literal escrito en el propio fichero, de modo que el
+# repositorio publicaba el secreto que sostiene la sesion: cualquiera que leyera
+# el fuente podia emitirse un token valido y entrar sin pasar por el login. Un
+# defecto por omision no puede proteger nada que este publicado junto al codigo.
+JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "")
+JWT_HORAS_VALIDEZ = int(os.getenv("JWT_HORAS_VALIDEZ", "8"))
+
+# Base de usuarios. La ruta se deriva de la ubicacion del proyecto y no del
+# directorio de trabajo, porque el dashboard puede lanzarse desde cualquier sitio
+# y la sesion no debe depender de desde donde se ejecute Streamlit.
+_RAIZ_PROYECTO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+USUARIOS_DB_PATH = os.getenv(
+    "USUARIOS_DB_PATH", os.path.join(_RAIZ_PROYECTO, "storage", "usuarios.db")
+)
+
+# Usuario inicial. Sin contrasena declarada se genera una al azar y se muestra
+# una unica vez por consola: deja de existir un `admin/admin123` fijo y conocido.
+ADMIN_INICIAL_USUARIO = os.getenv("ADMIN_INICIAL_USUARIO", "admin")
+ADMIN_INICIAL_PASSWORD = os.getenv("ADMIN_INICIAL_PASSWORD", "")
+
+# Limite de intentos de acceso fallidos por usuario y duracion del bloqueo. Sin
+# esto, una contrasena de ocho caracteres es cuestion de tiempo de CPU.
+LOGIN_MAX_INTENTOS = int(os.getenv("LOGIN_MAX_INTENTOS", "5"))
+LOGIN_BLOQUEO_MINUTOS = int(os.getenv("LOGIN_BLOQUEO_MINUTOS", "15"))
+
 # --- OBSERVABILIDAD DEL SISTEMA ---
-# Convertimos el string del .env a un booleano real
-DEBUG_MODE = os.getenv("DEBUG_MODE", "True").lower() in ("true", "1", "t")
+# Por defecto desactivado. Estaba en "True", contra lo que declaran el README y
+# el .env.example: tres fuentes diciendo cosas distintas sobre el mismo
+# interruptor. Y no es cosmetico: en modo depuracion el dashboard expone la
+# estructura interna del QueryTranslator al reclutador.
+DEBUG_MODE = os.getenv("DEBUG_MODE", "False").lower() in ("true", "1", "t")
 
 # --- OBSERVABILIDAD LLM (LANGFUSE) ---
 # Dual backend: self-hosted (http://localhost:3000) o cloud (https://cloud.langfuse.com).

@@ -1,7 +1,6 @@
 """Capa de abstraccion para gestionar la inferencia y los pipelines de vision computacional contra endpoints LLM locales o en la nube."""
 
 import base64
-import re
 
 import ollama
 from openai import OpenAI as _NativeOpenAI
@@ -152,24 +151,14 @@ class LocalOllamaProvider(BaseLLMProvider):
     def __init__(self):
         self.model = settings.MODEL_NAME
 
-    def _extract_clean_json(self, raw_text: str) -> str:
-        """Sanea y extrae unicamente el bloque JSON de respuestas conversacionales o contaminadas."""
-        # 1. Eliminar tokens de control internos que Qwen pueda escupir por error
-        cleaned_text = re.sub(r'<\|.*?\|>', '', raw_text) 
-        
-        # 2. Extraer el bloque JSON puro si el modelo uso markdown (```json ... ```)
-        if "```json" in cleaned_text:
-            return cleaned_text.split("```json")[1].split("```")[0].strip()
-        elif "```" in cleaned_text:
-            return cleaned_text.split("```")[1].strip()
-            
-        # Si no uso markdown, encontrar el primer '{' y el ultimo '}'
-        start_idx = cleaned_text.find('{')
-        end_idx = cleaned_text.rfind('}')
-        if start_idx != -1 and end_idx != -1:
-            return cleaned_text[start_idx:end_idx+1].strip()
-            
-        return cleaned_text.strip()
+    # El saneo de JSON vive en `core/json_sanitizer.extraer_json`. Aqui habia un
+    # `_extract_clean_json` privado que hacia lo mismo, y era el que usaban de
+    # hecho la extraccion de CV y la de vacantes: el modulo comun se creo para
+    # unificar y solo `complete_json` llego a adoptarlo. Dos implementaciones de
+    # la misma regla divergen en cuanto se toca una, y esta ya habia divergido en
+    # dos puntos: no comprobaba que la llave de cierre viniera despues de la de
+    # apertura -devolvia una cadena vacia ante `} ... {`- ni toleraba una
+    # respuesta nula, donde reventaba con TypeError dentro de `re.sub`.
 
     def parse_cv_images_to_json(self, image_paths: list) -> CandidateStructure:
         """Procesa objetos graficos de curriculos mediante pipelines locales de vision."""
@@ -240,8 +229,8 @@ class LocalOllamaProvider(BaseLLMProvider):
             )
         
         raw_content = response["message"]["content"]
-        json_limpio = self._extract_clean_json(raw_content)
-        
+        json_limpio = extraer_json(raw_content)
+
         return CandidateStructure.model_validate_json(json_limpio)
         
 
@@ -274,7 +263,7 @@ class LocalOllamaProvider(BaseLLMProvider):
             }
         )
 
-        json_limpio = self._extract_clean_json(response["message"]["content"])
+        json_limpio = extraer_json(response["message"]["content"])
         return VacancyStructure.model_validate_json(json_limpio)
 
     def reconcile_vacancy_name(self, nuevo_titulo: str, colecciones_existentes: list) -> str:
