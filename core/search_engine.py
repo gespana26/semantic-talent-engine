@@ -287,7 +287,7 @@ class CVSearchEngine:
         try:
             # El silo es autocontenido: la vacante comparte colección con sus candidatos.
             # Pre-filtrar por tipo_registro la excluye en el propio motor, de modo que no
-            # consume uno de los 50 resultados de la ventana de recuperación.
+            # consume uno de los resultados de la ventana de recuperación.
             n_recuperar = self._tamano_recuperacion()
             results = self._consultar_vectorial(query_text, prefiltrar=True, n_results=n_recuperar)
 

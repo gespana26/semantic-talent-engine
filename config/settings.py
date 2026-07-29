@@ -56,12 +56,6 @@ PESO_SIMILITUD = float(os.getenv("PESO_SIMILITUD", "0.25"))
 # nivel académico (a veces devuelve genéricos como "Profesional") descarte por
 # completo a un candidato válido.
 PISO_FACTOR_PROFESION = float(os.getenv("PISO_FACTOR_PROFESION", "0.4"))
-# Tamaño de la ventana que se re-puntúa con la fórmula compuesta (patrón
-# retrieve-and-rerank). La recuperación vectorial trae 50 resultados; verificar
-# requisito a requisito los 50 multiplicaría por diez el coste de una búsqueda
-# para reordenar posiciones que nadie mira. Por encima de la ventana sigue
-# mandando el orden vectorial, y esa es la limitación que hereda del techo de
-# recall del post-filtrado.
 # Tamaño de la ventana de re-puntuado. Se elevó de 20 a 100 al medir cuánto pesa
 # realmente cada señal: el rango COMPLETO de la distancia vectorial vale 4,4
 # puntos de afinidad, mientras que cubrir un requisito más vale entre 15 y 37,5.
